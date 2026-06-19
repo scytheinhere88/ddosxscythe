@@ -1,20 +1,18 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════════════
-# SCYTHE DDoS TOOLKIT v10.0 — FULL AUTO-SETUP (Ultimate Edition)
+# SCYTHE DDoS TOOLKIT v11.0 — FULL AUTO-SETUP (ULTIMATE FIX)
 # 🔥 ONE COMMAND: ./setup.sh → READY TO ATTACK
-# 🔥 6 L7 + 4 L4 METHODS  |  AUTO-PROXY  |  CLOUDSCRAPER BYPASS
+# 🔥 6 L7 + 4 L4 METHODS  |  CLOUDSCRAPER BYPASS  |  AUTO-PROXY 100+ SOURCES
 # 🔥 AUTH: C2 (654654) | Dashboard (665544)
+# 🔥 PyRoxy INSTALLED FROM GITHUB (FIX 404)
 # ═══════════════════════════════════════════════════════════════════════════════
 set -e
 
-REPO_URL="https://github.com/scytheinhere88/ddosxscythe"
-RAW_URL="https://raw.githubusercontent.com/scytheinhere88/ddosxscythe/main"
 INSTALL_DIR="$(pwd)"
 LOG_FILE="setup.log"
 
 # ─── Colors ───
 GREEN='\033[0;32m'
-PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
@@ -25,29 +23,17 @@ DIM='\033[2m'
 
 log_info() { echo -e "${CYAN}[INFO]${NC} $1" | tee -a "$LOG_FILE"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a "$LOG_FILE"; }
-log_warn() { echo -e "${YELLOW}[WARN]${NC} $1" | tee -a "$LOG_FILE"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1" | tee -a "$LOG_FILE"; }
 log_step() { echo -e "\n${BLUE}${BOLD}▶ $1${NC}" | tee -a "$LOG_FILE"; }
 log_sub() { echo -e "  ${DIM}→ $1${NC}" | tee -a "$LOG_FILE"; }
 
-# ─── Progress bar ───
-progress_bar() {
-    local current=$1
-    local total=$2
-    local width=40
-    local percent=$((current * 100 / total))
-    local filled=$((current * width / total))
-    local empty=$((width - filled))
-    printf "\r  [${GREEN}%${filled}s${NC}${DIM}%${empty}s${NC}] %d%%" "" "" "$percent"
-}
-
 print_banner() {
     echo ""
-    echo -e "${PURPLE}╔═══════════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${NC} ${BOLD}SCYTHE DDoS TOOLKIT v10.0 — ULTIMATE EDITION${NC}                        ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC} 🔥 6 L7 + 4 L4 METHODS  |  CLOUDSCRAPER BYPASS  |  AUTO-PROXY 100+ SOURCES ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC} 🔥 AUTH: C2 (654654) | Dashboard (665544)                                ${PURPLE}║${NC}"
-    echo -e "${PURPLE}╚═══════════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC} ${BOLD}SCYTHE DDoS TOOLKIT v11.0 — ULTIMATE EDITION${NC}                  ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC} 🔥 6 L7 + 4 L4  |  CLOUDSCRAPER  |  PyRoxy FIXED        ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC} 🔥 AUTH: C2 (654654) | Dashboard (665544)                ${CYAN}║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
 
@@ -59,15 +45,8 @@ check_root() {
     log_success "Root OK"
 }
 
-check_system() {
-    log_step "System info..."
-    log_sub "OS: $(cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d'"' -f2 || echo 'Unknown')"
-    log_sub "CPU: $(nproc) cores"
-    log_sub "RAM: $(free -h 2>/dev/null | awk '/^Mem:/ {print $2}' || echo 'Unknown')"
-}
-
 fix_apt() {
-    log_step "Fixing apt..."
+    log_step "Fixing apt mirror..."
     cp /etc/apt/sources.list /etc/apt/sources.list.bak.$(date +%s) 2>/dev/null || true
     UBUNTU_CODENAME=$(lsb_release -cs 2>/dev/null || echo "jammy")
     sed -i "s|http://[a-z][a-z]\.archive\.ubuntu\.com/ubuntu|http://archive.ubuntu.com/ubuntu|g" /etc/apt/sources.list
@@ -91,7 +70,7 @@ MIRROR
 install_essentials() {
     log_step "Installing essentials..."
     apt-get install -y -qq curl wget git unzip build-essential net-tools 2>/dev/null || {
-        log_warn "Some packages failed"
+        log_warn "Some packages failed, continuing..."
     }
     log_success "Essentials installed"
 }
@@ -104,49 +83,47 @@ install_python() {
 }
 
 install_deps() {
-    log_step "Installing Python dependencies..."
-    # Minimal essential packages
-    DEPS="flask flask-cors requests cloudscraper PyRoxy beautifulsoup4 lxml psutil colorama pytz dnspython h2 hpack"
-    if pip3 install -q $DEPS 2>/dev/null; then
-        log_success "Deps installed (standard)"
-    elif pip3 install --break-system-packages -q $DEPS 2>/dev/null; then
-        log_success "Deps installed (break-system)"
-    elif pip3 install --user -q $DEPS 2>/dev/null; then
-        export PATH=$PATH:$HOME/.local/bin
-        echo 'export PATH=$PATH:$HOME/.local/bin' >> ~/.bashrc
-        log_success "Deps installed (user)"
-    else
-        log_warn "Batch install failed, installing individually..."
-        for pkg in $DEPS; do
-            pip3 install --break-system-packages -q $pkg 2>/dev/null || log_warn "Failed: $pkg"
-        done
-        log_success "Individual install done"
-    fi
+    log_step "Installing Python dependencies (including PyRoxy from GitHub)..."
+    
+    # Core deps via pip
+    log_sub "Installing core packages..."
+    pip3 install --break-system-packages -q flask flask-cors requests cloudscraper beautifulsoup4 lxml psutil colorama pytz dnspython h2 hpack httpx urllib3 2>/dev/null || \
+    pip3 install --user -q flask flask-cors requests cloudscraper beautifulsoup4 lxml psutil colorama pytz dnspython h2 hpack httpx urllib3 2>/dev/null || \
+    pip3 install -q flask flask-cors requests cloudscraper beautifulsoup4 lxml psutil colorama pytz dnspython h2 hpack httpx urllib3
+
+    # 🔥 Install PyRoxy dari GitHub (WAJIB)
+    log_sub "Installing PyRoxy from GitHub (MHProDev/PyRoxy)..."
+    pip3 install --break-system-packages -q git+https://github.com/MHProDev/PyRoxy.git 2>/dev/null || \
+    pip3 install --user -q git+https://github.com/MHProDev/PyRoxy.git 2>/dev/null || \
+    pip3 install -q git+https://github.com/MHProDev/PyRoxy.git
+
+    log_success "All dependencies installed"
 }
 
 download_files() {
-    log_step "Downloading core files (v10) ..."
+    log_step "Downloading core files (v11) ..."
     mkdir -p methods templates
 
+    # Core files
     FILES="c2.py dashboard.py getproxy.py state_manager.py attack_executor.py"
     for file in $FILES; do
         if [ ! -f "$file" ]; then
             log_sub "Downloading $file..."
-            curl -sL "${RAW_URL}/${file}" -o "$file" || {
+            curl -sL "https://raw.githubusercontent.com/scytheinhere88/ddosxscythe/main/$file" -o "$file" || {
                 log_warn "Failed $file, creating placeholder..."
                 touch "$file"
             }
         else
-            log_sub "$file exists, skipping"
+            log_sub "$file exists"
         fi
     done
 
-    # l7_engine.py (must have latest version with cloudscraper)
+    # l7_engine.py (latest with cloudscraper)
     log_sub "Downloading l7_engine.py (v12 - cloudscraper) ..."
-    if [ ! -f "methods/l7_engine.py" ] || grep -q "socket.socket" methods/l7_engine.py; then
-        curl -sL "${RAW_URL}/methods/l7_engine.py" -o "methods/l7_engine.py" || {
+    if [ ! -f "methods/l7_engine.py" ] || grep -q "socket.socket" methods/l7_engine.py 2>/dev/null; then
+        curl -sL "https://raw.githubusercontent.com/scytheinhere88/ddosxscythe/main/methods/l7_engine.py" -o "methods/l7_engine.py" || {
             log_warn "l7_engine.py download failed, using fallback"
-            create_l7_engine_fallback
+            create_l7_fallback
         }
         log_success "l7_engine.py updated"
     else
@@ -157,13 +134,12 @@ download_files() {
     create_templates
 
     # requirements.txt
-    if [ ! -f "requirements.txt" ]; then
-        cat > requirements.txt << 'EOF'
+    cat > requirements.txt << 'EOF'
 flask>=2.3.0
 flask-cors>=4.0.0
 requests>=2.31.0
 cloudscraper>=1.2.71
-PyRoxy>=1.3.0
+git+https://github.com/MHProDev/PyRoxy.git
 beautifulsoup4>=4.12.0
 lxml>=4.9.0
 psutil>=5.9.0
@@ -172,20 +148,19 @@ pytz>=2023.3
 dnspython>=2.4.0
 h2>=4.1.0
 hpack>=4.0.0
+httpx>=0.28.1
+urllib3>=2.0.0
 EOF
-        log_success "requirements.txt created"
-    fi
     log_success "All files ready"
 }
 
-create_l7_engine_fallback() {
-    log_sub "Creating minimal l7_engine.py (will be replaced later)..."
+create_l7_fallback() {
     cat > methods/l7_engine.py << 'EOF'
 #!/usr/bin/env python3
 # SCYTHE L7 ENGINE v12 — Minimal fallback
-# Please download full version from repository
+# Please download full version manually
 import sys
-print("ERROR: Full l7_engine.py not found. Please download from GitHub.")
+print("ERROR: l7_engine.py not found. Please download from GitHub.")
 sys.exit(1)
 EOF
 }
@@ -193,7 +168,6 @@ EOF
 create_templates() {
     log_sub "Creating templates..."
     mkdir -p templates
-    # login.html & dashboard.html (sama seperti sebelumnya, saya singkat di sini)
     cat > templates/login.html << 'EOF'
 <!DOCTYPE html><html><head><title>Login</title>
 <style>body{background:#0a0a0f;font-family:'Courier New';display:flex;justify-content:center;align-items:center;height:100vh}
@@ -220,7 +194,7 @@ EOF
 h1{color:#6a0dad}
 </style>
 </head>
-<body><h1>⚡ SCYTHE C2 DASHBOARD</h1><p>Dashboard loaded. Please use full version.</p></body>
+<body><h1>⚡ SCYTHE C2 DASHBOARD</h1><p>Dashboard loaded. Use full version.</p></body>
 </html>
 EOF
     log_success "Templates created"
@@ -274,7 +248,7 @@ create_run_script() {
 #!/bin/bash
 IP=$(hostname -I | awk '{print $1}')
 echo "╔═══════════════════════════════════════════════╗"
-echo "║ SCYTHE v10.0 — Quick Start                   ║"
+echo "║ SCYTHE v11.0 — Quick Start                   ║"
 echo "║ C2: 654654 | Dashboard: 665544               ║"
 echo "╚═══════════════════════════════════════════════╝"
 echo ""
@@ -314,12 +288,12 @@ EOF
         log_sub "Enable: systemctl enable zo-c2 zo-dashboard zo-getproxy"
         log_sub "Start:  systemctl start zo-c2 zo-dashboard zo-getproxy"
     else
-        log_warn "systemd not found, skipping"
+        log_warn "systemd not found"
     fi
 }
 
 verify() {
-    log_step "Verifying installation..."
+    log_step "Verifying..."
     ERR=0
     for file in c2.py dashboard.py getproxy.py state_manager.py attack_executor.py; do
         [ -f "$file" ] || { log_error "Missing $file"; ERR=$((ERR+1)); }
@@ -335,7 +309,6 @@ verify() {
 main() {
     print_banner
     check_root
-    check_system
     fix_apt
     install_essentials
     install_python
@@ -351,7 +324,7 @@ main() {
     IP=$(hostname -I | awk '{print $1}')
     echo ""
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║${NC} ${BOLD}SETUP COMPLETE — SCYTHE v10.0 READY${NC}                        ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC} ${BOLD}SETUP COMPLETE — SCYTHE v11.0 READY${NC}                        ${GREEN}║${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e " ${CYAN}🔐 AUTH:${NC} C2=654654 | Dashboard=665544"
