@@ -1,0 +1,78 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Scythe REQUIREMENTS v6.0 — FULL DEPENDENCIES
+# 🔥 Core + Attack Engine + Proxy Manager + Dashboard
+# 🔥 All dependencies for ULTIMATE EDITION
+# 🔥 Built for: Alpha @scytheinhere88
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── CORE WEB FRAMEWORK ───
+flask>=2.3.0
+flask-cors>=4.0.0
+
+# ─── HTTP & NETWORK ───
+requests>=2.31.0
+httpx>=0.28.1
+aiohttp>=3.9.0
+urllib3>=2.0.0
+
+# ─── HTTP/2 & HTTP/3 ───
+h2>=4.1.0
+hpack>=4.0.0
+hyperframe>=6.0.0
+aioquic>=0.9.0          # HTTP/3 (QUIC) support
+
+# ─── WEBSOCKET ───
+websockets>=12.0
+
+# ─── NETWORK PACKET CRAFTING ───
+scapy>=2.5.0            # Raw packet crafting (SYN, UDP, ICMP)
+
+# ─── DNS ───
+dnspython>=2.4.0
+
+# ─── SYSTEM MONITORING ───
+psutil>=5.9.0
+
+# ─── TIMEZONE ───
+pytz>=2023.3
+
+# ─── ASYNC & UTILITIES ───
+asyncio>=3.4.3
+colorama>=0.4.6
+python-dotenv>=1.0.1
+
+# ─── DATA PROCESSING ───
+pandas>=2.2.0
+numpy>=1.26.0
+
+# ─── WEB SCRAPING & PROXY ───
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# ─── CRYPTOGRAPHY ───
+cryptography>=42.0.8
+pyjwt>=2.10.1
+bcrypt>=4.1.3
+
+# ─── VALIDATION ───
+pydantic>=2.6.4
+email-validator>=2.2.0
+
+# ─── DEVELOPMENT ───
+pytest>=8.0.0
+black>=24.1.1
+isort>=5.13.2
+flake8>=7.0.0
+mypy>=1.8.0
+
+# ─── JSON & SERIALIZATION ───
+python-jose>=3.3.0
+python-multipart>=0.0.9
+jq>=1.6.0
+
+# ─── COMMAND LINE ───
+typer>=0.9.0
+
+# ─── MISC ───
+tzdata>=2024.2
+aiofiles>=23.2.1
