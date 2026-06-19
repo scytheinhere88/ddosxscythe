@@ -208,53 +208,45 @@ if READLINE_AVAILABLE:
     readline.set_completer(completer.complete)
 
 # ─── BOX UTILITIES (with dynamic width) ───
-def box(title, lines, color=C.G, width=None, padding=4):
-    """Draw a fancy ASCII box with dynamic width based on content"""
-    if width is None:
-        # Calculate max line length
-        max_len = len(title) + 2
-        for line in lines:
-            if isinstance(line, tuple):
-                # For tuple, combine label and value
-                if len(line) >= 2:
-                    label = line[0]
-                    value = line[1] if len(line) > 1 else ""
-                    text = f" {label}: {value}"
-                else:
-                    text = str(line[0])
-            else:
-                text = str(line)
-            # Strip color codes for length calculation
-            clean = re.sub(r'\x1b\[[0-9;]*m', '', text)
-            max_len = max(max_len, len(clean) + 2)
-        width = max_len + padding * 2
-        width = max(70, min(width, 120))  # antara 70-120 karakter
-
+# ─── Perbaiki fungsi box ───
+def box(title, lines, color=C.G, width=78):
+    """Draw a fancy ASCII box with centered title and lines"""
     print(color + "╔" + ("═" * width) + "╗" + C.X)
-    # Title
-    title_pad = (width - len(title)) // 2
-    print(color + "║" + " " * title_pad + C.B + title + C.X + " " * (width - len(title) - title_pad) + color + "║" + C.X)
+    print(color + "║" + C.B + title.center(width) + C.X + color + "║" + C.X)
     print(color + "╠" + ("═" * width) + "╣" + C.X)
     for line in lines:
-        if isinstance(line, tuple):
-            if len(line) == 3:
-                label, value, val_color = line
-                text = f" {label}: {val_color}{value}{C.X}"
-            elif len(line) == 2:
-                label, value = line
-                text = f" {label}: {C.D}{value}{C.X}"
-            else:
-                text = f" {line[0]}"
+        if isinstance(line, tuple) and len(line) == 3:
+            label, value, val_color = line
+            text = " " + label + ": " + val_color + str(value) + C.X
+        elif isinstance(line, tuple) and len(line) == 2:
+            text = " " + line[0] + ": " + C.D + str(line[1]) + C.X
         else:
             text = str(line)
-        # Strip color codes for length calculation
-        clean = re.sub(r'\x1b\[[0-9;]*m', '', text)
-        # Padding
-        text_len = len(clean)
-        pad_right = width - text_len - 1
-        print(color + "║" + text + " " * pad_right + color + "║" + C.X)
-    print(color + "╚" + ("═" * width) + "╝" + C.X)
+        print(color + "║" + text.ljust(width) + color + "║" + C.X)
+    print(color + "╚" + ("═" * width) + "╝" + C.X)  # ← perbaiki ini
 
+# ─── Tambahkan proxy stats ───
+def proxy_box(proxy_count, total_fetched, refreshing, vps_specs, rps_estimates):
+    cpu, ram, disk = vps_specs
+    l7_rps, l4_rps = rps_estimates
+    lines = [
+        ("Active Proxies", str(proxy_count), C.G),
+        ("Total Scraped", str(total_fetched), C.C),
+        ("Refresh Rate", "Every 7 seconds", C.Y),
+        ("Status", "ACTIVE" if refreshing else "PAUSED", C.G if refreshing else C.Y),
+        ("Max Pool", "50,000 proxies", C.D),
+        "",
+        ("VPS CPU", str(cpu) + " cores", C.C),
+        ("VPS RAM", str(round(ram, 1)) + " GB", C.C),
+        ("VPS Disk", str(round(disk, 1)) + " GB", C.C),
+        "",
+        ("Est. L7 RPS", "~" + str(l7_rps) + " per attack", C.G),
+        ("Est. L4 RPS", "~" + str(l4_rps) + " per attack", C.G),
+        "",
+        C.D + " Proxies auto-refresh from 100+ sources every 7s" + C.X,
+        C.D + " Smart rotation: faster proxies get higher priority" + C.X,
+    ]
+    box(" PROXY POOL STATUS ", lines, C.C)
 # ─── BOXES ───
 def attack_box(method, target, port, duration, hold_time, proxy_count, attack_id, rps_estimate, threads, layer):
     info = METHODS.get(method, {})
