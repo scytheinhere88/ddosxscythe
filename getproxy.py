@@ -53,11 +53,6 @@ PROXY_SOURCES = [
     "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
     "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks4.txt",
     "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt",
-    "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/all.txt",
-    
-    # GitHub proxy lists (mertguvencli)
-    "https://raw.githubusercontent.com/mertguvencli/http-proxy-list/main/proxy-list/data.json",
-    "https://raw.githubusercontent.com/mertguvencli/http-proxy-list/main/proxy-list/data.txt",
     
     # GitHub proxy lists (clarketm)
     "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
@@ -66,16 +61,10 @@ PROXY_SOURCES = [
     # GitHub proxy lists (mmotti)
     "https://raw.githubusercontent.com/mmotti/proxy-list/main/proxy-list.txt",
     
-    # GitHub proxy lists (aidistan)
-    "https://raw.githubusercontent.com/aidistan/proxy-list/master/proxy-list.txt",
-    
     # GitHub proxy lists (roosterkid)
     "https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt",
     "https://raw.githubusercontent.com/roosterkid/openproxylist/main/SOCKS4_RAW.txt",
     "https://raw.githubusercontent.com/roosterkid/openproxylist/main/SOCKS5_RAW.txt",
-    "https://raw.githubusercontent.com/roosterkid/openproxylist/main/http_checked.txt",
-    "https://raw.githubusercontent.com/roosterkid/openproxylist/main/socks4_checked.txt",
-    "https://raw.githubusercontent.com/roosterkid/openproxylist/main/socks5_checked.txt",
     
     # GitHub proxy lists (hookzof)
     "https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt",
@@ -101,7 +90,6 @@ PROXY_SOURCES = [
     "https://list.proxylistplus.com/Fresh-HTTP-Proxy-List-2",
     "https://list.proxylistplus.com/Fresh-HTTP-Proxy-List-3",
     "https://list.proxylistplus.com/SOCKS-Proxy-List-1",
-    "https://list.proxylistplus.com/SOCKS-Proxy-List-2",
     
     # SpysOne
     "https://spys.one/en/socks-proxy-list/",
@@ -109,34 +97,20 @@ PROXY_SOURCES = [
     
     # MyProxy
     "https://my-proxy.com/free-proxy-list.html",
-    "https://my-proxy.com/free-socks-5-proxy/",
-    "https://my-proxy.com/free-socks-4-proxy/",
     
     # ProxyRack
     "https://www.proxyrack.com/free-proxy-list/",
     
     # ProxyNova
     "https://www.proxynova.com/proxy-list/",
-    "https://www.proxynova.com/proxy-list/?country=us",
-    "https://www.proxynova.com/proxy-list/?country=uk",
-    
-    # Xroxy
-    "https://www.xroxy.com/proxylist.htm",
-    "https://www.xroxy.com/proxylist.php?port=80",
-    "https://www.xroxy.com/proxylist.php?port=443",
     
     # Hidester
     "https://hidester.com/proxydata/ip-address.txt",
-    "https://hidester.com/proxydata/port-data.txt",
-    
-    # BlockedProxy
-    "https://blockedproxy.com/en/proxy-list/",
     
     # Additional sources from MHDDoS
     "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=yes&anonymity=elite",
     "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=10000&country=all&ssl=yes&anonymity=elite",
-    "https://raw.githubusercontent.com/opsxcq/proxy-list/master/list.txt",
-    "https://raw.githubusercontent.com/maaslalani/proxy-list/main/proxy-list.txt",
+    "https://raw.githubusercontent.com/opsxcq/proxy-list/master/list.txt"
 ]
 
 # ─── Proxy extraction (universal) ───
